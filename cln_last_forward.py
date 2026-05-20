@@ -29,17 +29,27 @@ def call_rpc(*args):
     try:
         j = subprocess.run(args, stdout=PIPE, stderr=PIPE)
         if j.returncode != 0:
-            # Fallback for older CLN that might not support certain filters
-            return {"error": j.stderr.decode()}
+            return {"error": j.stderr.decode().strip()}
         return json.loads(j.stdout)
     except Exception as e:
         return {"error": str(e)}
+
+def verify_env():
+    info = call_rpc("getinfo")
+    if "id" not in info:
+        print(colored("Error: Could not connect to Core Lightning.", "red"), file=sys.stderr)
+        print(f"Check if your CLN_CLI and CLN_DIR environment variables are set correctly.", file=sys.stderr)
+        print(f"  CLN_CLI: {config['cli']}", file=sys.stderr)
+        print(f"  CLN_DIR: {os.environ.get('CLN_DIR', 'Default (~/.lightning)')}", file=sys.stderr)
+        if "error" in info:
+            print(f"  RPC Error: {info['error']}", file=sys.stderr)
+        sys.exit(1)
+    return info
 
 def get_forward_at(idx):
     if idx < 0: return None
     res = call_rpc("listforwards", "status=settled", "index=created", f"start={idx}", "limit=1")
     if "error" in res:
-        # Retry without status filter for older CLN
         res = call_rpc("listforwards", "index=created", f"start={idx}", "limit=1")
     fws = res.get("forwards", [])
     return fws[0] if fws else None
@@ -72,13 +82,14 @@ def find_max_index():
             search_high = mid - 1
     return last_valid_idx
 
-# 1. Batch get metadata
+# 1. Verify environment and gathering node info
+verify_env()
 print("Gathering node/channel info...", file=sys.stderr)
+
 node_info = {}
 nodes_res = call_rpc("listnodes")
-if "nodes" in nodes_res:
-    for n in nodes_res.get("nodes", []):
-        node_info[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
+for n in nodes_res.get("nodes", []):
+    node_info[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
 
 channel_liquidity = {}
 channel_to_alias = {}
@@ -144,7 +155,6 @@ while current_end >= 0:
         if fw.get("status") != "settled" and "status" in fw:
             continue
             
-        # Use resolved_time if available, otherwise received_time
         ts = int(fw.get("resolved_time", fw.get("received_time", 0)))
         if ts < target_ts:
             chunk_hit_target = True
@@ -160,7 +170,7 @@ while current_end >= 0:
         
     current_end = start - 1
 
-# Sort the final list
+# Sort and Display
 sort_key = config["sort"]
 if sort_key == "fee":
     last_forwards.sort(key=lambda fw: fw["fee_msat"])

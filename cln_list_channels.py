@@ -25,23 +25,36 @@ clncli.extend(list(map((lambda a: "--" + a), config["cli_args"])))
 
 def call_rpc(*args):
     args = clncli + list(args)
-    j = subprocess.run(args, stdout=PIPE, stderr=subprocess.DEVNULL)
+    j = subprocess.run(args, stdout=PIPE, stderr=PIPE)
+    if j.returncode != 0:
+        return {"error": j.stderr.decode().strip()}
     try:
         return json.loads(j.stdout)
     except:
-        return {}
+        return {"error": "Failed to parse JSON response"}
 
-# 1. Gathering basic info (Batch aliases - High Speed)
+def verify_env():
+    info = call_rpc("getinfo")
+    if "id" not in info:
+        print(colored("Error: Could not connect to Core Lightning.", "red"), file=sys.stderr)
+        print(f"Check if your CLN_CLI and CLN_DIR environment variables are set correctly.", file=sys.stderr)
+        print(f"  CLN_CLI: {config['cli']}", file=sys.stderr)
+        print(f"  CLN_DIR: {os.environ.get('CLN_DIR', 'Default (~/.lightning)')}", file=sys.stderr)
+        if "error" in info:
+            print(f"  RPC Error: {info['error']}", file=sys.stderr)
+        sys.exit(1)
+    return info
+
+# 1. Verify environment and gathering basic info
+verify_env()
 print("Gathering node/channel info...", file=sys.stderr)
-info = call_rpc("getinfo")
-mypubkey = info.get("id")
 
 node_aliases = {}
 nodes_res = call_rpc("listnodes")
 for n in nodes_res.get("nodes", []):
     node_aliases[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
 
-# 2. Reliable channel discovery loop (Original stable logic)
+# 2. Reliable channel discovery loop
 all_peers = call_rpc("listpeers").get("peers", [])
 all_chans = []
 total_cap = 0
@@ -64,13 +77,10 @@ for ch, peer in all_chans:
     ratio = ch["to_us_msat"] / ch["total_msat"]
     scid = ch["short_channel_id"]
     
-    # 5th column: Remote fee ppm
     remote_fee_ppm = -1
-    # Try modern 'updates' field first (fast)
     if "updates" in ch and "remote" in ch["updates"]:
         remote_fee_ppm = ch["updates"]["remote"].get("fee_proportional_millionths", -1)
     
-    # Fallback to original listchannels if missing and --all is set
     if remote_fee_ppm == -1 and config["all"]:
         chan_res = call_rpc("listchannels", scid)
         for gc in chan_res.get("channels", []):
