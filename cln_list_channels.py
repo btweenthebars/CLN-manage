@@ -43,18 +43,42 @@ if "nodes" in nodes_res:
     for n in nodes_res["nodes"]:
         node_aliases[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
 
-# Batch get all local channels and peer connectivity
 all_chans = []
 total_cap = 0
 outbound_cap = 0
+peer_states = {}
 
+# Try to get channels globally (v23.08+)
 channels_res = call_rpc("listpeerchannels")
-if "channels" in channels_res:
+if "channels" in channels_res and channels_res["channels"]:
     for ch in channels_res["channels"]:
         if "short_channel_id" in ch and ch["state"] == "CHANNELD_NORMAL":
             all_chans.append(ch)
             total_cap += ch["total_msat"]
             outbound_cap += ch["to_us_msat"]
+            # Save connectivity state from listpeerchannels
+            peer_states[ch["peer_id"]] = ch.get("peer_connected", False)
+else:
+    # Fallback for older CLN versions
+    print("Old CLN detected, falling back to per-peer channel lookup...", file=sys.stderr)
+    peers_res = call_rpc("listpeers")
+    if "peers" in peers_res:
+        for p in peers_res["peers"]:
+            peer_states[p["id"]] = p["connected"]
+            # Some older versions might have channels inside listpeers
+            p_chans = p.get("channels", [])
+            if not p_chans:
+                # If not in listpeers, we must call listpeerchannels per peer
+                chan_lookup = call_rpc("listpeerchannels", p["id"])
+                p_chans = chan_lookup.get("channels", [])
+            
+            for ch in p_chans:
+                if "short_channel_id" in ch and ch["state"] == "CHANNELD_NORMAL":
+                    # Ensure peer_id is present for consistency
+                    ch["peer_id"] = p["id"]
+                    all_chans.append(ch)
+                    total_cap += ch["total_msat"]
+                    outbound_cap += ch["to_us_msat"]
 
 # 2. Process and Sort
 all_chans.sort(key=lambda c: c["to_us_msat"] / c["total_msat"])
@@ -64,7 +88,7 @@ for ch in all_chans:
     peer_id = ch["peer_id"]
     alias = node_aliases.get(peer_id, "node not exist in gossip")
     ratio = ch["to_us_msat"] / ch["total_msat"]
-    connected = ch.get("peer_connected", False)
+    connected = peer_states.get(peer_id, False)
     scid = ch["short_channel_id"]
     
     # Modern CLN includes remote policy in listpeerchannels
@@ -72,9 +96,8 @@ for ch in all_chans:
     if "updates" in ch and "remote" in ch["updates"]:
         remote_fee_ppm = ch["updates"]["remote"].get("fee_proportional_millionths", -1)
     
-    # Fallback for older CLN (only if --all is provided and updates missing)
+    # Fallback for older CLN
     if remote_fee_ppm == -1 and config["all"]:
-        # Targeted call for just this channel to avoid heavy global listchannels
         chan_res = call_rpc("listchannels", scid)
         if "channels" in chan_res:
             for gc in chan_res["channels"]:
