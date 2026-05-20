@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(description="c-lightning channel review",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--cli", default=os.environ.get("CLN_CLI", "lightning-cli"), help="your lightning-cli command")
 parser.add_argument("--cli-args", default=[], nargs='+', help="lightning-cli arguments ommitting --")
-parser.add_argument("--all", action=argparse.BooleanOptionalAction, help="all info, could be heavy operation")
+parser.add_argument("--all", action=argparse.BooleanOptionalAction, help="all info, currently unused but kept for compatibility")
 cmd_args = parser.parse_args()
 config = vars(cmd_args)
 
@@ -35,8 +35,6 @@ def call_rpc(*args):
 
 # 1. Gathering basic info (Batch calls)
 print("Gathering node/channel info...", file=sys.stderr)
-info = call_rpc("getinfo")
-mypubkey = info.get("id")
 
 # Batch get node aliases
 node_aliases = {}
@@ -45,18 +43,11 @@ if "nodes" in nodes_res:
     for n in nodes_res["nodes"]:
         node_aliases[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
 
-# Batch get all local channels
+# Batch get all local channels and peer connectivity
 all_chans = []
 total_cap = 0
 outbound_cap = 0
-peer_states = {}
 
-peers_res = call_rpc("listpeers")
-if "peers" in peers_res:
-    for p in peers_res["peers"]:
-        peer_states[p["id"]] = p["connected"]
-
-# CLN's listpeerchannels without an ID returns all channels
 channels_res = call_rpc("listpeerchannels")
 if "channels" in channels_res:
     for ch in channels_res["channels"]:
@@ -65,29 +56,30 @@ if "channels" in channels_res:
             total_cap += ch["total_msat"]
             outbound_cap += ch["to_us_msat"]
 
-# 2. Optional: Batch fetch remote fees from gossip
-remote_fees = {}
-if config["all"]:
-    print("Fetching gossip channel data...", file=sys.stderr)
-    # This can be heavy on nodes with 100k+ channels, but usually okay for 100-node nodes
-    gossip_res = call_rpc("listchannels")
-    if "channels" in gossip_res:
-        for gc in gossip_res["channels"]:
-            if gc["source"] != mypubkey:
-                remote_fees[gc["short_channel_id"]] = gc["fee_per_millionth"]
-
-# 3. Process and Sort
+# 2. Process and Sort
 all_chans.sort(key=lambda c: c["to_us_msat"] / c["total_msat"])
 
-# 4. Display Results
+# 3. Display Results
 for ch in all_chans:
     peer_id = ch["peer_id"]
     alias = node_aliases.get(peer_id, "node not exist in gossip")
     ratio = ch["to_us_msat"] / ch["total_msat"]
-    connected = peer_states.get(peer_id, False)
+    connected = ch.get("peer_connected", False)
     scid = ch["short_channel_id"]
     
-    remote_fee_ppm = remote_fees.get(scid, -1)
+    # Modern CLN includes remote policy in listpeerchannels
+    remote_fee_ppm = -1
+    if "updates" in ch and "remote" in ch["updates"]:
+        remote_fee_ppm = ch["updates"]["remote"].get("fee_proportional_millionths", -1)
+    
+    # Fallback for older CLN (only if --all is provided and updates missing)
+    if remote_fee_ppm == -1 and config["all"]:
+        # Targeted call for just this channel to avoid heavy global listchannels
+        chan_res = call_rpc("listchannels", scid)
+        if "channels" in chan_res:
+            for gc in chan_res["channels"]:
+                if gc["source"] == peer_id:
+                    remote_fee_ppm = gc["fee_per_millionth"]
 
     print("%s\t%s\t%.2f\t%d\t%d\t%s\t%s" % (
         scid,
