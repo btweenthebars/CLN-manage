@@ -11,10 +11,9 @@ import argparse
 parser = argparse.ArgumentParser(description="c-lightning channel review",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--cli", default=os.environ.get("CLN_CLI", "lightning-cli"), help="your lightning-cli command")
-parser.add_argument("--cli-args", default=[], nargs='+', help="lightning-cli arguments ommitting --")
 parser.add_argument("--all", action=argparse.BooleanOptionalAction, help="all info, currently used for remote policy fallback")
 parser.add_argument("--sort", default="time", choices=["time", "ratio"], help="sort channels by creation time or liquidity ratio")
-cmd_args = parser.parse_args()
+cmd_args, unknown_args = parser.parse_known_args()
 config = vars(cmd_args)
 
 ONE_M = 1000000000
@@ -22,7 +21,7 @@ ONE_M = 1000000000
 clncli = [config["cli"]]
 if "CLN_DIR" in os.environ:
     clncli.extend(["--lightning-dir", os.environ["CLN_DIR"]])
-clncli.extend(list(map((lambda a: "--" + a), config["cli_args"])))
+clncli.extend(unknown_args)
 
 def call_rpc(*args):
     args = clncli + list(args)
