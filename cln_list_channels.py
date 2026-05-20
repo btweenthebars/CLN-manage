@@ -91,7 +91,11 @@ for ch, peer in all_chans:
     ratio = ch["to_us_msat"] / ch["total_msat"]
     scid = ch["short_channel_id"]
     
-    # New column: liquidity/size in Million sats
+    # Color SCID based on connection status
+    connected = peer.get("connected", False)
+    scid_str = colored(scid, "green" if connected else "red")
+    
+    # liquidity/size in Million sats
     liq_m = ch["to_us_msat"] / ONE_M
     cap_m = ch["total_msat"] / ONE_M
     cap_str = "%.2f/%.2f" % (liq_m, cap_m)
@@ -108,7 +112,6 @@ for ch, peer in all_chans:
         remote_base = ch["updates"]["remote"].get("fee_base_msat")
         remote_ppm = ch["updates"]["remote"].get("fee_proportional_millionths")
     
-    # Fallback for older CLN if --all is provided
     if remote_ppm is None and config["all"]:
         chan_res = call_rpc("listchannels", scid)
         for gc in chan_res.get("channels", []):
@@ -116,14 +119,13 @@ for ch, peer in all_chans:
                 remote_base = gc.get("base_fee_msat")
                 remote_ppm = gc.get("fee_per_millionth")
 
-    print("%s\t%s\t%.2f\t%s\t%s\t%s\t%s\t%s" % (
-        scid,
+    print("%s\t%s\t%.2f\t%s\t%s\t%s\t%s" % (
+        scid_str,
         '{:20s}'.format(alias[:20]),
         ratio,
         '{:12s}'.format(cap_str),
         '{:10s}'.format(format_fee(local_base, local_ppm)),
         '{:10s}'.format(format_fee(remote_base, remote_ppm)),
-        "connected" if peer.get("connected") else "disconnected",
         peer_id
     ))
 
