@@ -26,24 +26,64 @@ clncli.extend(list(map((lambda a: "--" + a), config["cli_args"])))
 
 def call_rpc(*args):
     args = clncli + list(args)
-    j = subprocess.run(args, stdout=PIPE, stderr=subprocess.DEVNULL)
     try:
+        j = subprocess.run(args, stdout=PIPE, stderr=PIPE)
+        if j.returncode != 0:
+            # Fallback for older CLN that might not support certain filters
+            return {"error": j.stderr.decode()}
         return json.loads(j.stdout)
-    except:
-        return {}
+    except Exception as e:
+        return {"error": str(e)}
 
-# 1. Batch get node aliases (1 RPC call)
+def get_forward_at(idx):
+    if idx < 0: return None
+    res = call_rpc("listforwards", "status=settled", "index=created", f"start={idx}", "limit=1")
+    if "error" in res:
+        # Retry without status filter for older CLN
+        res = call_rpc("listforwards", "index=created", f"start={idx}", "limit=1")
+    fws = res.get("forwards", [])
+    return fws[0] if fws else None
+
+def find_max_index():
+    low = 0
+    high = 1000
+    last_valid_idx = -1
+    
+    f0 = get_forward_at(0)
+    if not f0: return -1
+    last_valid_idx = f0.get("created_index", 0)
+
+    while True:
+        f = get_forward_at(high)
+        if not f:
+            break
+        last_valid_idx = f.get("created_index", high)
+        low = high
+        high *= 2
+    
+    search_high = high
+    while low <= search_high:
+        mid = (low + search_high) // 2
+        f = get_forward_at(mid)
+        if f:
+            last_valid_idx = f.get("created_index", mid)
+            low = mid + 1
+        else:
+            search_high = mid - 1
+    return last_valid_idx
+
+# 1. Batch get metadata
 print("Gathering node/channel info...", file=sys.stderr)
 node_info = {}
 nodes_res = call_rpc("listnodes")
-for n in nodes_res.get("nodes", []):
-    node_info[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
+if "nodes" in nodes_res:
+    for n in nodes_res.get("nodes", []):
+        node_info[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
 
-# 2. Batch get ALL channel liquidity (1 RPC call)
-# Passing no peer ID to listpeerchannels returns all channels on the node
 channel_liquidity = {}
 channel_to_alias = {}
-all_channels = call_rpc("listpeerchannels").get("channels", [])
+peers_res = call_rpc("listpeerchannels")
+all_channels = peers_res.get("channels", [])
 
 for ch in all_channels:
     if "short_channel_id" in ch:
@@ -51,7 +91,6 @@ for ch in all_channels:
         peer_id = ch["peer_id"]
         alias = node_info.get(peer_id, peer_id[:20])
         
-        # Store liquidity and alias
         liq = 0.0
         if "total_msat" in ch and ch["total_msat"] > 0:
             liq = ch["to_us_msat"] / ch["total_msat"]
@@ -72,30 +111,54 @@ def get_liquidity_str(scid):
 def to_alias(scid):
     return channel_to_alias.get(scid, scid)
 
-# 3. Fetch forwards in efficient pages
+# 2. Fetch forwards backwards from the end
 ct = int(time.time())
 target_ts = ct - int(86400 * config["daysago"])
-print(f"Fetching forwards from {config['daysago']} days ago...", file=sys.stderr)
+print(f"Seeking forwards from {config['daysago']} days ago...", file=sys.stderr)
+
+max_idx = find_max_index()
+if max_idx == -1:
+    print("No settled forwards found on this node.", file=sys.stderr)
+    sys.exit(0)
+
+print(f"Found max forward index: {max_idx}. Fetching forwards...", file=sys.stderr)
 
 last_forwards = []
 total_fee = 0
 total_volume = 0
+limit = 1000
+current_end = max_idx
 
-# Start from the end and work backwards if possible, or just paginate forward
-# Most CLN nodes perform well with index=created and a large start offset
-# We'll just fetch the most recent 10,000 for simplicity and speed
-res = call_rpc("listforwards", "status=settled", "index=created", "limit=10000")
-fws = res.get("forwards", [])
-
-for fw in reversed(fws):
-    ts = int(fw["resolved_time"])
-    if ts < target_ts:
+while current_end >= 0:
+    start = max(0, current_end - limit + 1)
+    res = call_rpc("listforwards", "status=settled", "index=created", f"start={start}", f"limit={limit}")
+    if "error" in res:
+        res = call_rpc("listforwards", "index=created", f"start={start}", f"limit={limit}")
+        
+    fws = res.get("forwards", [])
+    if not fws:
         break
     
-    if "out_channel" in fw:
-        last_forwards.append(fw)
-        total_fee += fw["fee_msat"]
-        total_volume += fw["out_msat"]
+    chunk_hit_target = False
+    for fw in reversed(fws):
+        if fw.get("status") != "settled" and "status" in fw:
+            continue
+            
+        # Use resolved_time if available, otherwise received_time
+        ts = int(fw.get("resolved_time", fw.get("received_time", 0)))
+        if ts < target_ts:
+            chunk_hit_target = True
+            break
+        
+        if "out_channel" in fw:
+            last_forwards.append(fw)
+            total_fee += fw["fee_msat"]
+            total_volume += fw["out_msat"]
+    
+    if chunk_hit_target:
+        break
+        
+    current_end = start - 1
 
 # Sort the final list
 sort_key = config["sort"]
@@ -106,12 +169,12 @@ elif sort_key == "ppm":
 elif sort_key == "volume":
     last_forwards.sort(key=lambda fw: fw["out_msat"])
 elif sort_key == "time":
-    last_forwards.sort(key=lambda fw: int(fw["resolved_time"]))
+    last_forwards.sort(key=lambda fw: int(fw.get("resolved_time", fw.get("received_time", 0))))
 
 for fw in last_forwards:
     ppm = str(ceil(fw["fee_msat"] / fw["out_msat"] * 1000000)) if fw["out_msat"] > 0 else "?"
     ts_start = int(fw["received_time"])
-    ts_done = int(fw["resolved_time"])
+    ts_done = int(fw.get("resolved_time", ts_start))
 
     print("%d\t%.2f\t(%d\t%s)\t%s(%s) -> %s(%s)\t%s" % (
         (ts_done - ts_start),
