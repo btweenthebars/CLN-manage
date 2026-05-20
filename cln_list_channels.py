@@ -25,15 +25,13 @@ clncli.extend(list(map((lambda a: "--" + a), config["cli_args"])))
 
 def call_rpc(*args):
     args = clncli + list(args)
-    j = subprocess.run(args, stdout=PIPE, stderr=subprocess.PIPE)
-    if j.returncode != 0:
-        return {}
+    j = subprocess.run(args, stdout=PIPE, stderr=subprocess.DEVNULL)
     try:
         return json.loads(j.stdout)
     except:
         return {}
 
-# 1. Gathering basic info (Batch aliases - this is the speed boost)
+# 1. Gathering basic info (Batch aliases - High Speed)
 print("Gathering node/channel info...", file=sys.stderr)
 info = call_rpc("getinfo")
 mypubkey = info.get("id")
@@ -43,7 +41,7 @@ nodes_res = call_rpc("listnodes")
 for n in nodes_res.get("nodes", []):
     node_aliases[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
 
-# 2. Reliable channel discovery loop (from original script)
+# 2. Reliable channel discovery loop (Original stable logic)
 all_peers = call_rpc("listpeers").get("peers", [])
 all_chans = []
 total_cap = 0
@@ -62,22 +60,21 @@ all_chans.sort(key=lambda c: c[0]["to_us_msat"] / c[0]["total_msat"])
 # 3. Display Results
 for ch, peer in all_chans:
     peer_id = peer["id"]
-    alias = node_aliases.get(peer_id, peer_id[:20])
+    alias = node_aliases.get(peer_id, "node not exist in gossip")
     ratio = ch["to_us_msat"] / ch["total_msat"]
     scid = ch["short_channel_id"]
     
-    # Remote fee ppm lookup
+    # 5th column: Remote fee ppm
     remote_fee_ppm = -1
-    
-    # First try modern 'updates' field
+    # Try modern 'updates' field first (fast)
     if "updates" in ch and "remote" in ch["updates"]:
         remote_fee_ppm = ch["updates"]["remote"].get("fee_proportional_millionths", -1)
     
-    # Fallback for older CLN if --all is provided
+    # Fallback to original listchannels if missing and --all is set
     if remote_fee_ppm == -1 and config["all"]:
         chan_res = call_rpc("listchannels", scid)
         for gc in chan_res.get("channels", []):
-            if gc["source"] == peer_id:
+            if gc.get("source") == peer_id:
                 remote_fee_ppm = gc["fee_per_millionth"]
 
     print("%s\t%s\t%.2f\t%d\t%d\t%s\t%s" % (
