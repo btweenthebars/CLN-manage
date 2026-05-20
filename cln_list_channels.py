@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser(description="c-lightning channel review",
 parser.add_argument("--cli", default=os.environ.get("CLN_CLI", "lightning-cli"), help="your lightning-cli command")
 parser.add_argument("--cli-args", default=[], nargs='+', help="lightning-cli arguments ommitting --")
 parser.add_argument("--all", action=argparse.BooleanOptionalAction, help="all info, currently used for remote policy fallback")
+parser.add_argument("--sort", default="time", choices=["time", "ratio"], help="sort channels by creation time or liquidity ratio")
 cmd_args = parser.parse_args()
 config = vars(cmd_args)
 
@@ -55,6 +56,12 @@ def format_fee(base_msat, ppm):
         base_str = "%.3f" % base_sat
     return f"{base_str}/{ppm}"
 
+def scid_to_int_tuple(scid):
+    try:
+        return tuple(map(int, scid.split('x')))
+    except:
+        return (0, 0, 0)
+
 # 1. Verify environment and gathering node info
 verify_env()
 print("Gathering node/channel info...", file=sys.stderr)
@@ -78,21 +85,27 @@ for peer in all_peers:
         if "short_channel_id" in ch and ch["state"] == "CHANNELD_NORMAL":
             ch["peer_id"] = p_id
             ch["peer_connected"] = peer.get("connected", False)
-            all_chans.append([ch, peer])
+            all_chans.append(ch)
             total_cap += ch["total_msat"]
             outbound_cap += ch["to_us_msat"]
 
-all_chans.sort(key=lambda c: c[0]["to_us_msat"] / c[0]["total_msat"])
+# 3. Sorting
+if config["sort"] == "ratio":
+    # Sort by liquidity ratio
+    all_chans.sort(key=lambda c: c["to_us_msat"] / c["total_msat"])
+else:
+    # Default: Sort by creation time (using SCID as proxy)
+    all_chans.sort(key=lambda c: scid_to_int_tuple(c["short_channel_id"]))
 
-# 3. Display Results
-for ch, peer in all_chans:
-    peer_id = peer["id"]
+# 4. Display Results
+for ch in all_chans:
+    peer_id = ch["peer_id"]
     alias = node_aliases.get(peer_id, peer_id[:20])
     ratio = ch["to_us_msat"] / ch["total_msat"]
     scid = ch["short_channel_id"]
     
     # Color SCID based on connection status
-    connected = peer.get("connected", False)
+    connected = ch.get("peer_connected", False)
     scid_str = colored(scid, "green" if connected else "red")
     
     # liquidity/size in Million sats
