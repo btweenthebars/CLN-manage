@@ -36,7 +36,7 @@ def call_rpc(*args):
 # 1. Gathering basic info (Batch calls)
 print("Gathering node/channel info...", file=sys.stderr)
 
-# Batch get node aliases
+# Batch get node aliases (High impact optimization)
 node_aliases = {}
 nodes_res = call_rpc("listnodes")
 if "nodes" in nodes_res:
@@ -48,55 +48,51 @@ total_cap = 0
 outbound_cap = 0
 peer_states = {}
 
-# Try to get channels globally (v23.08+)
-channels_res = call_rpc("listpeerchannels")
-if "channels" in channels_res and channels_res["channels"]:
-    for ch in channels_res["channels"]:
+# Strategy: Try global listpeerchannels first, fallback to listpeers loop
+res = call_rpc("listpeerchannels")
+global_channels = res.get("channels", [])
+
+if not global_channels:
+    # Fallback to the reliable peer-by-peer method from the original script
+    print("No global channels found, falling back to peer-by-peer lookup...", file=sys.stderr)
+    peers_res = call_rpc("listpeers")
+    for peer in peers_res.get("peers", []):
+        p_id = peer["id"]
+        peer_states[p_id] = peer.get("connected", False)
+        
+        # Original logic: call listpeerchannels for this specific peer
+        p_res = call_rpc("listpeerchannels", p_id)
+        for ch in p_res.get("channels", []):
+            if "short_channel_id" in ch and ch["state"] == "CHANNELD_NORMAL":
+                ch["peer_id"] = p_id
+                ch["peer_connected"] = peer.get("connected", False)
+                all_chans.append(ch)
+                total_cap += ch["total_msat"]
+                outbound_cap += ch["to_us_msat"]
+else:
+    # Use the global results
+    for ch in global_channels:
         if "short_channel_id" in ch and ch["state"] == "CHANNELD_NORMAL":
             all_chans.append(ch)
             total_cap += ch["total_msat"]
             outbound_cap += ch["to_us_msat"]
-            # Save connectivity state from listpeerchannels
             peer_states[ch["peer_id"]] = ch.get("peer_connected", False)
-else:
-    # Fallback for older CLN versions
-    print("Old CLN detected, falling back to per-peer channel lookup...", file=sys.stderr)
-    peers_res = call_rpc("listpeers")
-    if "peers" in peers_res:
-        for p in peers_res["peers"]:
-            peer_states[p["id"]] = p["connected"]
-            # Some older versions might have channels inside listpeers
-            p_chans = p.get("channels", [])
-            if not p_chans:
-                # If not in listpeers, we must call listpeerchannels per peer
-                chan_lookup = call_rpc("listpeerchannels", p["id"])
-                p_chans = chan_lookup.get("channels", [])
-            
-            for ch in p_chans:
-                if "short_channel_id" in ch and ch["state"] == "CHANNELD_NORMAL":
-                    # Ensure peer_id is present for consistency
-                    ch["peer_id"] = p["id"]
-                    all_chans.append(ch)
-                    total_cap += ch["total_msat"]
-                    outbound_cap += ch["to_us_msat"]
 
 # 2. Process and Sort
-all_chans.sort(key=lambda c: c["to_us_msat"] / c["total_msat"])
+all_chans.sort(key=lambda c: c["to_us_msat"] / c["total_msat"] if c["total_msat"] > 0 else 0)
 
 # 3. Display Results
 for ch in all_chans:
     peer_id = ch["peer_id"]
     alias = node_aliases.get(peer_id, "node not exist in gossip")
-    ratio = ch["to_us_msat"] / ch["total_msat"]
+    ratio = ch["to_us_msat"] / ch["total_msat"] if ch["total_msat"] > 0 else 0
     connected = peer_states.get(peer_id, False)
     scid = ch["short_channel_id"]
     
-    # Modern CLN includes remote policy in listpeerchannels
     remote_fee_ppm = -1
     if "updates" in ch and "remote" in ch["updates"]:
         remote_fee_ppm = ch["updates"]["remote"].get("fee_proportional_millionths", -1)
     
-    # Fallback for older CLN
     if remote_fee_ppm == -1 and config["all"]:
         chan_res = call_rpc("listchannels", scid)
         if "channels" in chan_res:
