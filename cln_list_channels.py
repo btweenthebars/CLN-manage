@@ -56,56 +56,25 @@ def format_fee(base_msat, ppm):
     return f"{base_str}/{ppm}"
 
 def scid_to_int_tuple(scid):
+    if not scid or 'x' not in scid:
+        return (9999999, 9999999, 9999999) # Put channels without SCID at the end of time sort
     try:
         return tuple(map(int, scid.split('x')))
     except:
-        return (0, 0, 0)
+        return (9999999, 9999999, 9999999)
 
-# 1. Verify environment and gathering node info
-verify_env()
-print("Gathering node/channel info...", file=sys.stderr)
-
-node_aliases = {}
-nodes_res = call_rpc("listnodes")
-if "nodes" in nodes_res:
-    for n in nodes_res["nodes"]:
-        node_aliases[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
-
-all_chans = []
-total_cap = 0
-outbound_cap = 0
-
-# 2. Channel discovery loop
-all_peers = call_rpc("listpeers").get("peers", [])
-for peer in all_peers:
-    p_id = peer["id"]
-    p_res = call_rpc("listpeerchannels", p_id)
-    for ch in p_res.get("channels", []):
-        if "short_channel_id" in ch and ch["state"] == "CHANNELD_NORMAL":
-            ch["peer_id"] = p_id
-            ch["peer_connected"] = peer.get("connected", False)
-            all_chans.append(ch)
-            total_cap += ch["total_msat"]
-            outbound_cap += ch["to_us_msat"]
-
-# 3. Sorting
-if config["sort"] == "ratio":
-    # Sort by liquidity ratio
-    all_chans.sort(key=lambda c: c["to_us_msat"] / c["total_msat"])
-else:
-    # Default: Sort by creation time (using SCID as proxy)
-    all_chans.sort(key=lambda c: scid_to_int_tuple(c["short_channel_id"]))
-
-# 4. Display Results
-for ch in all_chans:
+def print_channel(ch, alias):
     peer_id = ch["peer_id"]
-    alias = node_aliases.get(peer_id, peer_id[:20])
-    ratio = ch["to_us_msat"] / ch["total_msat"]
-    scid = ch["short_channel_id"]
+    ratio = ch["to_us_msat"] / ch["total_msat"] if ch["total_msat"] > 0 else 0
+    scid = ch.get("short_channel_id")
+    state = ch["state"]
     
-    # Color SCID based on connection status
+    # Identifier column (SCID or State)
     connected = ch.get("peer_connected", False)
-    scid_str = colored(scid, "green" if connected else "red")
+    if scid:
+        id_str = colored(scid, "green" if connected else "red")
+    else:
+        id_str = colored(state, "yellow")
     
     # liquidity/size in Million sats
     liq_m = ch["to_us_msat"] / ONE_M
@@ -124,7 +93,7 @@ for ch in all_chans:
         remote_base = ch["updates"]["remote"].get("fee_base_msat")
         remote_ppm = ch["updates"]["remote"].get("fee_proportional_millionths")
     
-    if remote_ppm is None and config["all"]:
+    if remote_ppm is None and config["all"] and scid:
         chan_res = call_rpc("listchannels", scid)
         for gc in chan_res.get("channels", []):
             if gc.get("source") == peer_id:
@@ -132,7 +101,7 @@ for ch in all_chans:
                 remote_ppm = gc.get("fee_per_millionth")
 
     print("%s\t%s\t%.2f\t%s\t%s\t%s\t%s" % (
-        scid_str,
+        '{:20s}'.format(id_str), # Padded because id_str might contain ANSI codes
         '{:20s}'.format(alias[:20]),
         ratio,
         '{:12s}'.format(cap_str),
@@ -141,6 +110,57 @@ for ch in all_chans:
         peer_id
     ))
 
+# 1. Verify environment and gathering node info
+verify_env()
+print("Gathering node/channel info...", file=sys.stderr)
+
+node_aliases = {}
+nodes_res = call_rpc("listnodes")
+if "nodes" in nodes_res:
+    for n in nodes_res["nodes"]:
+        node_aliases[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
+
+normal_chans = []
+other_chans = []
+total_cap = 0
+outbound_cap = 0
+
+# 2. Channel discovery loop
+all_peers = call_rpc("listpeers").get("peers", [])
+for peer in all_peers:
+    p_id = peer["id"]
+    p_res = call_rpc("listpeerchannels", p_id)
+    for ch in p_res.get("channels", []):
+        ch["peer_id"] = p_id
+        ch["peer_connected"] = peer.get("connected", False)
+        if ch["state"] == "CHANNELD_NORMAL":
+            normal_chans.append(ch)
+            total_cap += ch["total_msat"]
+            outbound_cap += ch["to_us_msat"]
+        else:
+            other_chans.append(ch)
+
+# 3. Sorting
+if config["sort"] == "ratio":
+    normal_chans.sort(key=lambda c: c["to_us_msat"] / c["total_msat"] if c["total_msat"] > 0 else 0)
+else:
+    normal_chans.sort(key=lambda c: scid_to_int_tuple(c.get("short_channel_id")))
+
+# Sort other channels by state then SCID
+other_chans.sort(key=lambda c: (c["state"], scid_to_int_tuple(c.get("short_channel_id"))))
+
+# 4. Display Results
+for ch in other_chans:
+    alias = node_aliases.get(ch["peer_id"], "node not exist in gossip")
+    print_channel(ch, alias)
+
+if other_chans and normal_chans:
+    print("-" * 100)
+
+for ch in normal_chans:
+    alias = node_aliases.get(ch["peer_id"], "node not exist in gossip")
+    print_channel(ch, alias)
+
 if total_cap > 0:
     print("")
     print("Total Capacity: %.2fM, Outbound: %.2fM, Ratio: %.2f" % (
@@ -148,5 +168,5 @@ if total_cap > 0:
         outbound_cap / ONE_M,
         outbound_cap / total_cap
     ))
-else:
-    print("\nNo active channels found.")
+elif not other_chans:
+    print("\nNo channels found.")
