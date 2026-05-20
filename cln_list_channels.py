@@ -91,6 +91,11 @@ for ch, peer in all_chans:
     ratio = ch["to_us_msat"] / ch["total_msat"]
     scid = ch["short_channel_id"]
     
+    # New column: liquidity/size in Million sats
+    liq_m = ch["to_us_msat"] / ONE_M
+    cap_m = ch["total_msat"] / ONE_M
+    cap_str = "%.2f/%.2f" % (liq_m, cap_m)
+    
     # Local policy
     local_base = ch.get("fee_base_msat")
     local_ppm = ch.get("fee_proportional_millionths")
@@ -111,10 +116,11 @@ for ch, peer in all_chans:
                 remote_base = gc.get("base_fee_msat")
                 remote_ppm = gc.get("fee_per_millionth")
 
-    print("%s\t%s\t%.2f\t%s\t%s\t%s\t%s" % (
+    print("%s\t%s\t%.2f\t%s\t%s\t%s\t%s\t%s" % (
         scid,
         '{:20s}'.format(alias[:20]),
         ratio,
+        '{:12s}'.format(cap_str),
         '{:10s}'.format(format_fee(local_base, local_ppm)),
         '{:10s}'.format(format_fee(remote_base, remote_ppm)),
         "connected" if peer.get("connected") else "disconnected",
