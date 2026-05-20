@@ -57,7 +57,7 @@ def format_fee(base_msat, ppm):
 
 def scid_to_int_tuple(scid):
     if not scid or 'x' not in scid:
-        return (9999999, 9999999, 9999999) # Put channels without SCID at the end of time sort
+        return (9999999, 9999999, 9999999)
     try:
         return tuple(map(int, scid.split('x')))
     except:
@@ -68,24 +68,22 @@ def print_channel(ch, alias):
     ratio = ch["to_us_msat"] / ch["total_msat"] if ch["total_msat"] > 0 else 0
     scid = ch.get("short_channel_id")
     state = ch["state"]
-    
-    # Identifier column (SCID or State)
     connected = ch.get("peer_connected", False)
-    if scid:
-        id_str = colored(scid, "green" if connected else "red")
-    else:
-        id_str = colored(state, "yellow")
     
-    # liquidity/size in Million sats
+    # Status Column logic
+    if state != "CHANNELD_NORMAL":
+        status_str = colored(state, "yellow")
+        if scid:
+            status_str += f" ({colored(scid, 'green' if connected else 'red')})"
+    else:
+        status_str = colored(scid, "green" if connected else "red")
+    
     liq_m = ch["to_us_msat"] / ONE_M
     cap_m = ch["total_msat"] / ONE_M
     cap_str = "%.2f/%.2f" % (liq_m, cap_m)
     
-    # Local policy
     local_base = ch.get("fee_base_msat")
     local_ppm = ch.get("fee_proportional_millionths")
-    
-    # Remote policy
     remote_base = None
     remote_ppm = None
     
@@ -100,8 +98,9 @@ def print_channel(ch, alias):
                 remote_base = gc.get("base_fee_msat")
                 remote_ppm = gc.get("fee_per_millionth")
 
+    # Use 35 padding for the status/id column to accommodate State + SCID
     print("%s\t%s\t%.2f\t%s\t%s\t%s\t%s" % (
-        '{:20s}'.format(id_str), # Padded because id_str might contain ANSI codes
+        status_str.ljust(35 if state != "CHANNELD_NORMAL" else 20),
         '{:20s}'.format(alias[:20]),
         ratio,
         '{:12s}'.format(cap_str),
@@ -122,6 +121,7 @@ if "nodes" in nodes_res:
 
 normal_chans = []
 other_chans = []
+peers_with_channels = set()
 total_cap = 0
 outbound_cap = 0
 
@@ -130,7 +130,12 @@ all_peers = call_rpc("listpeers").get("peers", [])
 for peer in all_peers:
     p_id = peer["id"]
     p_res = call_rpc("listpeerchannels", p_id)
-    for ch in p_res.get("channels", []):
+    channels = p_res.get("channels", [])
+    
+    if channels:
+        peers_with_channels.add(p_id)
+        
+    for ch in channels:
         ch["peer_id"] = p_id
         ch["peer_connected"] = peer.get("connected", False)
         if ch["state"] == "CHANNELD_NORMAL":
@@ -146,17 +151,37 @@ if config["sort"] == "ratio":
 else:
     normal_chans.sort(key=lambda c: scid_to_int_tuple(c.get("short_channel_id")))
 
-# Sort other channels by state then SCID
 other_chans.sort(key=lambda c: (c["state"], scid_to_int_tuple(c.get("short_channel_id"))))
 
 # 4. Display Results
+
+# A. Connected peers with NO channels
+first_peer = True
+for peer in all_peers:
+    p_id = peer["id"]
+    if p_id not in peers_with_channels and peer.get("connected"):
+        if first_peer:
+            # print("Connected Peers (No Channels):", file=sys.stderr)
+            first_peer = False
+        alias = node_aliases.get(p_id, p_id[:20])
+        print("%s\t%s\t\t\t\t\t\t%s" % (
+            colored("[CONNECTED]", "cyan").ljust(35),
+            '{:20s}'.format(alias[:20]),
+            p_id
+        ))
+
+if not first_peer:
+    print("-" * 120)
+
+# B. Non-NORMAL Channels
 for ch in other_chans:
     alias = node_aliases.get(ch["peer_id"], "node not exist in gossip")
     print_channel(ch, alias)
 
 if other_chans and normal_chans:
-    print("-" * 100)
+    print("-" * 120)
 
+# C. NORMAL Channels
 for ch in normal_chans:
     alias = node_aliases.get(ch["peer_id"], "node not exist in gossip")
     print_channel(ch, alias)
@@ -168,5 +193,5 @@ if total_cap > 0:
         outbound_cap / ONE_M,
         outbound_cap / total_cap
     ))
-elif not other_chans:
-    print("\nNo channels found.")
+elif not other_chans and first_peer:
+    print("\nNo channels or connected peers found.")
