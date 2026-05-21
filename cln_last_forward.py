@@ -166,18 +166,6 @@ while current_end >= 0:
             break
         
         if "out_channel" in fw:
-            # Apply alias filter if provided
-            if config.get("aliases"):
-                in_scid = fw.get("in_channel")
-                out_scid = fw.get("out_channel")
-                in_alias = to_alias(in_scid).lower() if in_scid else ""
-                out_alias = to_alias(out_scid).lower() if out_scid else ""
-                
-                # Check if any provided alias matches either the incoming or outgoing peer
-                match = any(a.lower() in in_alias or a.lower() in out_alias for a in config["aliases"])
-                if not match:
-                    continue
-                    
             last_forwards.append(fw)
             total_fee += fw["fee_msat"]
             total_volume += fw["out_msat"]
