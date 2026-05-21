@@ -50,7 +50,10 @@ def visible_len(s):
     return len(re.sub(r'\x1b\[[0-9;]*m', '', s))
 
 def ljust_v(s, width):
-    return s + ' ' * (width - visible_len(s))
+    vlen = visible_len(s)
+    if vlen >= width:
+        return s
+    return s + ' ' * (width - vlen)
 
 def format_fee(base_msat, ppm):
     if base_msat is None or ppm is None:
@@ -115,8 +118,9 @@ def print_channel(ch, alias):
                 remote_ppm = gc.get("fee_per_millionth")
 
     # Use space padding instead of tabs for consistent table alignment
+    # Reduced first column width to 16 for a more compact table
     print("%s  %s  %s  %s  %s  %s  %s" % (
-        ljust_v(status_str, 35),
+        ljust_v(status_str, 16),
         ljust_v(alias[:20], 20),
         ljust_v(ratio_colored, 8),
         ljust_v(cap_str, 15),
@@ -180,13 +184,13 @@ for peer in all_peers:
             first_peer = False
         alias = node_aliases.get(p_id, p_id[:20])
         print("%s  %s  %s" % (
-            ljust_v(colored("[CONNECTED]", "cyan"), 35),
+            ljust_v(colored("[CONNECTED]", "cyan"), 16),
             ljust_v(alias[:20], 20),
             p_id
         ))
 
 if not first_peer:
-    print("-" * 140)
+    print("-" * 120)
 
 # B. Non-NORMAL Channels
 for ch in other_chans:
@@ -194,7 +198,7 @@ for ch in other_chans:
     print_channel(ch, alias)
 
 if other_chans and normal_chans:
-    print("-" * 140)
+    print("-" * 120)
 
 # C. NORMAL Channels
 for ch in normal_chans:
