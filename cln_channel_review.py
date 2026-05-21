@@ -22,13 +22,16 @@ parser.add_argument("--non-interactive", action="store_true", help="skip interac
 cmd_args, unknown_args = parser.parse_known_args()
 config = vars(cmd_args)
 
+cln_options = [a for a in unknown_args if a.startswith("-")]
+aliases = [a for a in unknown_args if not a.startswith("-")]
+
 ONE_M = 1000000000
 ONE_SAT = 1000
 
 clncli = [config["cli"]]
 if "CLN_DIR" in os.environ:
     clncli.extend(["--lightning-dir", os.environ["CLN_DIR"]])
-clncli.extend(unknown_args)
+clncli.extend(cln_options)
 
 def call_rpc(*args):
     args = clncli + list(args)
@@ -227,6 +230,15 @@ else:
 
 # Filter by liquidity ratio
 selected_chans = [c for c in selected_chans if config["ratio_min"] <= (c["to_us_msat"] / c["total_msat"]) <= config["ratio_max"]]
+
+if aliases:
+    filtered = []
+    for ch in selected_chans:
+        alias_name = node_aliases.get(ch["peer_id"], "node not exist in gossip").lower()
+        peer_id = ch["peer_id"].lower()
+        if any(a.lower() in alias_name or a.lower() in peer_id for a in aliases):
+            filtered.append(ch)
+    selected_chans = filtered
 
 # 4. Main Display Loop
 progress = len(selected_chans)
