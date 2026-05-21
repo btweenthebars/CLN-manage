@@ -7,6 +7,7 @@ from math import ceil
 import sys
 from termcolor import colored
 import argparse
+import re
 
 parser = argparse.ArgumentParser(description="c-lightning channel review",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -44,6 +45,12 @@ def verify_env():
             print(f"  RPC Error: {info['error']}", file=sys.stderr)
         sys.exit(1)
     return info
+
+def visible_len(s):
+    return len(re.sub(r'\x1b\[[0-9;]*m', '', s))
+
+def ljust_v(s, width):
+    return s + ' ' * (width - visible_len(s))
 
 def format_fee(base_msat, ppm):
     if base_msat is None or ppm is None:
@@ -107,14 +114,14 @@ def print_channel(ch, alias):
                 remote_base = gc.get("base_fee_msat")
                 remote_ppm = gc.get("fee_per_millionth")
 
-    # Use padding for the status/id column
-    print("%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
-        status_str.ljust(35 if state != "CHANNELD_NORMAL" else 20),
-        '{:20s}'.format(alias[:20]),
-        ratio_colored.ljust(10), # Added padding for colored string
-        '{:12s}'.format(cap_str),
-        '{:10s}'.format(format_fee(local_base, local_ppm)),
-        '{:10s}'.format(format_fee(remote_base, remote_ppm)),
+    # Use space padding instead of tabs for consistent table alignment
+    print("%s  %s  %s  %s  %s  %s  %s" % (
+        ljust_v(status_str, 35),
+        ljust_v(alias[:20], 20),
+        ljust_v(ratio_colored, 8),
+        ljust_v(cap_str, 15),
+        ljust_v(format_fee(local_base, local_ppm), 15),
+        ljust_v(format_fee(remote_base, remote_ppm), 15),
         peer_id
     ))
 
@@ -172,14 +179,14 @@ for peer in all_peers:
         if first_peer:
             first_peer = False
         alias = node_aliases.get(p_id, p_id[:20])
-        print("%s\t%s\t\t\t\t\t\t%s" % (
-            colored("[CONNECTED]", "cyan").ljust(35),
-            '{:20s}'.format(alias[:20]),
+        print("%s  %s  %s" % (
+            ljust_v(colored("[CONNECTED]", "cyan"), 35),
+            ljust_v(alias[:20], 20),
             p_id
         ))
 
 if not first_peer:
-    print("-" * 120)
+    print("-" * 140)
 
 # B. Non-NORMAL Channels
 for ch in other_chans:
@@ -187,7 +194,7 @@ for ch in other_chans:
     print_channel(ch, alias)
 
 if other_chans and normal_chans:
-    print("-" * 120)
+    print("-" * 140)
 
 # C. NORMAL Channels
 for ch in normal_chans:
