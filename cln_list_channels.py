@@ -99,7 +99,7 @@ def print_channel(ch, alias):
 
     liq_m = ch["to_us_msat"] / ONE_M
     cap_m = ch["total_msat"] / ONE_M
-    cap_str = "%.2f/%.2f" % (liq_m, cap_m)
+    cap_str = "%.2fM/%.2fM" % (liq_m, cap_m)
     
     local_base = ch.get("fee_base_msat")
     local_ppm = ch.get("fee_proportional_millionths")
