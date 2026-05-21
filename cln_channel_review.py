@@ -22,8 +22,21 @@ parser.add_argument("--non-interactive", action="store_true", help="skip interac
 cmd_args, unknown_args = parser.parse_known_args()
 config = vars(cmd_args)
 
-cln_options = [a for a in unknown_args if a.startswith("-")]
-aliases = [a for a in unknown_args if not a.startswith("-")]
+# Separate unknown_args into those for CLN and those for the script
+cln_options = []
+aliases = []
+i = 0
+while i < len(unknown_args):
+    arg = unknown_args[i]
+    if arg.startswith("-"):
+        cln_options.append(arg)
+        # If it doesn't contain '=', check if next arg is a value
+        if "=" not in arg and i + 1 < len(unknown_args) and not unknown_args[i+1].startswith("-"):
+            cln_options.append(unknown_args[i+1])
+            i += 1
+    else:
+        aliases.append(arg)
+    i += 1
 
 ONE_M = 1000000000
 ONE_SAT = 1000
@@ -91,6 +104,25 @@ def find_max_index():
             search_high = mid - 1
     return last_valid_idx
 
+def find_target_index(target_ts, max_idx):
+    low = 0
+    high = max_idx
+    target_idx = 0
+    
+    while low <= high:
+        mid = (low + high) // 2
+        f = get_forward_at(mid)
+        if f:
+            ts = int(f.get("resolved_time", f.get("received_time", 0)))
+            if ts < target_ts:
+                low = mid + 1
+            else:
+                target_idx = mid
+                high = mid - 1
+        else:
+            high = mid - 1
+    return target_idx
+
 # 1. Verify environment and gathering node info
 info = verify_env()
 mypubkey = info["id"]
@@ -135,26 +167,26 @@ def init_chan_stats(scid):
         }
 
 if max_xday > 0:
-    print(f"Fetching forwards from last {max_xday} days...", file=sys.stderr)
+    print(f"Seeking forwards from last {max_xday} days...", file=sys.stderr)
     max_idx = find_max_index()
     if max_idx != -1:
+        target_idx = find_target_index(target_ts, max_idx)
+        print(f"Fetching forwards from index {target_idx} to {max_idx}...", file=sys.stderr)
+        
         limit = 1000
-        current_end = max_idx
-        while current_end >= 0:
-            start = max(0, current_end - limit + 1)
-            res = call_rpc("listforwards", "status=settled", "index=created", f"start={start}", f"limit={limit}")
+        current_start = target_idx
+        while current_start <= max_idx:
+            res = call_rpc("listforwards", "status=settled", "index=created", f"start={current_start}", f"limit={limit}")
             if "error" in res:
-                res = call_rpc("listforwards", "index=created", f"start={start}", f"limit={limit}")
+                res = call_rpc("listforwards", "index=created", f"start={current_start}", f"limit={limit}")
             fws = res.get("forwards", [])
             if not fws: break
             
-            chunk_hit_target = False
-            for fw in reversed(fws):
+            for fw in fws:
                 if fw.get("status") != "settled" and "status" in fw: continue
                 ts = int(fw.get("resolved_time", fw.get("received_time", 0)))
-                if ts < target_ts:
-                    chunk_hit_target = True
-                    break
+                # Double check timestamp even though we binary searched
+                if ts < target_ts: continue
                 
                 # Process forward
                 in_ch = fw.get("in_channel")
@@ -184,8 +216,8 @@ if max_xday > 0:
                             chan_stats[out_ch]["xdays"][d]["v_out"] += vol_out
                             chan_stats[out_ch]["xdays"][d]["fee"] += fee
                             chan_stats[out_ch]["xdays"][d]["ppms"].append(ppm)
-            if chunk_hit_target: break
-            current_end = start - 1
+            
+            current_start += limit
 
 # 3. Filtering Logic
 selected_chans = []
