@@ -1,0 +1,333 @@
+import json
+import os
+import subprocess
+from subprocess import PIPE
+import time
+from statistics import mean, median
+from math import ceil
+import sys
+from termcolor import colored
+import argparse
+
+parser = argparse.ArgumentParser(description="c-lightning channel review",
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument("--cli", default=os.environ.get("CLN_CLI", "lightning-cli"), help="your lightning-cli command")
+parser.add_argument("--xdays", nargs="*", default=[1,7,30], type=int, help="last forward in xdays(can be list)")
+parser.add_argument("--peer-id", help="peer pubkey that you want to review otherwise it will review all your peers")
+parser.add_argument("--recent-forward", help="review peers that forwards from i to j days (e.g. 0,7)")
+parser.add_argument("--absent-forward", default=-1, type=int, help="review peers that have no forwards in the last n days")
+parser.add_argument("--ratio-min", default=0, type=float, help="review peers that have we have liquidity ratio >= x")
+parser.add_argument("--ratio-max", default=1, type=float, help="review peers that have we have liquidity ratio <= y")
+parser.add_argument("--non-interactive", action="store_true", help="skip interactive ppm update")
+cmd_args, unknown_args = parser.parse_known_args()
+config = vars(cmd_args)
+
+ONE_M = 1000000000
+ONE_SAT = 1000
+
+clncli = [config["cli"]]
+if "CLN_DIR" in os.environ:
+    clncli.extend(["--lightning-dir", os.environ["CLN_DIR"]])
+clncli.extend(unknown_args)
+
+def call_rpc(*args):
+    args = clncli + list(args)
+    try:
+        j = subprocess.run(args, stdout=PIPE, stderr=PIPE)
+        if j.returncode != 0:
+            return {"error": j.stderr.decode().strip()}
+        return json.loads(j.stdout)
+    except Exception as e:
+        return {"error": str(e)}
+
+def verify_env():
+    info = call_rpc("getinfo")
+    if "id" not in info:
+        print(colored("Error: Could not connect to Core Lightning.", "red"), file=sys.stderr)
+        print(f"Check if your CLN_CLI and CLN_DIR environment variables are set correctly.", file=sys.stderr)
+        print(f"  CLN_CLI: {config['cli']}", file=sys.stderr)
+        print(f"  CLN_DIR: {os.environ.get('CLN_DIR', 'Default (~/.lightning)')}", file=sys.stderr)
+        if "error" in info:
+            print(f"  RPC Error: {info['error']}", file=sys.stderr)
+        sys.exit(1)
+    return info
+
+def get_forward_at(idx):
+    if idx < 0: return None
+    res = call_rpc("listforwards", "status=settled", "index=created", f"start={idx}", "limit=1")
+    if "error" in res:
+        res = call_rpc("listforwards", "index=created", f"start={idx}", "limit=1")
+    fws = res.get("forwards", [])
+    return fws[0] if fws else None
+
+def find_max_index():
+    low = 0
+    high = 1000
+    last_valid_idx = -1
+    
+    f0 = get_forward_at(0)
+    if not f0: return -1
+    last_valid_idx = f0.get("created_index", 0)
+
+    while True:
+        f = get_forward_at(high)
+        if not f:
+            break
+        last_valid_idx = f.get("created_index", high)
+        low = high
+        high *= 2
+    
+    search_high = high
+    while low <= search_high:
+        mid = (low + search_high) // 2
+        f = get_forward_at(mid)
+        if f:
+            last_valid_idx = f.get("created_index", mid)
+            low = mid + 1
+        else:
+            search_high = mid - 1
+    return last_valid_idx
+
+# 1. Verify environment and gathering node info
+info = verify_env()
+mypubkey = info["id"]
+print("Gathering node/channel info...", file=sys.stderr)
+
+node_aliases = {}
+nodes_res = call_rpc("listnodes")
+for n in nodes_res.get("nodes", []):
+    node_aliases[n["nodeid"]] = n.get("alias", n["nodeid"][:20])
+
+all_channels = []
+chan_info_map = {}
+peers_res = call_rpc("listpeerchannels")
+for ch in peers_res.get("channels", []):
+    if "short_channel_id" in ch:
+        scid = ch["short_channel_id"]
+        all_channels.append(ch)
+        chan_info_map[scid] = ch
+
+# 2. Fetch forwards backwards from the end
+xdays = sorted(config["xdays"])
+max_xday = max(xdays) if xdays else 0
+if config["absent_forward"] != -1:
+    max_xday = max(max_xday, config["absent_forward"])
+if config["recent_forward"]:
+    tmp = config["recent_forward"].split(",", 1)
+    dto = int(tmp[0]) if len(tmp) == 1 else int(tmp[1])
+    max_xday = max(max_xday, dto)
+
+ct = int(time.time())
+target_ts = ct - int(86400 * max_xday)
+
+# Stats containers: {scid: {day: {count_in, count_out, fee_earned, vol_in, vol_out, ppms: []}}}
+# Also total stats: {scid: {total_in, total_out, last_in, last_out, last_ppm}}
+chan_stats = {}
+def init_chan_stats(scid):
+    if scid not in chan_stats:
+        chan_stats[scid] = {
+            "total_in": 0, "total_out": 0,
+            "last_in": 0, "last_out": 0, "last_ppm": 0,
+            "xdays": {d: {"c_in": 0, "c_out": 0, "fee": 0, "v_in": 0, "v_out": 0, "ppms": []} for d in xdays}
+        }
+
+if max_xday > 0:
+    print(f"Fetching forwards from last {max_xday} days...", file=sys.stderr)
+    max_idx = find_max_index()
+    if max_idx != -1:
+        limit = 1000
+        current_end = max_idx
+        while current_end >= 0:
+            start = max(0, current_end - limit + 1)
+            res = call_rpc("listforwards", "status=settled", "index=created", f"start={start}", f"limit={limit}")
+            if "error" in res:
+                res = call_rpc("listforwards", "index=created", f"start={start}", f"limit={limit}")
+            fws = res.get("forwards", [])
+            if not fws: break
+            
+            chunk_hit_target = False
+            for fw in reversed(fws):
+                if fw.get("status") != "settled" and "status" in fw: continue
+                ts = int(fw.get("resolved_time", fw.get("received_time", 0)))
+                if ts < target_ts:
+                    chunk_hit_target = True
+                    break
+                
+                # Process forward
+                in_ch = fw.get("in_channel")
+                out_ch = fw.get("out_channel")
+                fee = fw.get("fee_msat", 0)
+                vol_in = fw.get("in_msat", 0)
+                vol_out = fw.get("out_msat", 0)
+                ppm = ceil(fee / vol_out * 1000000) if vol_out > 0 else 0
+                
+                if in_ch:
+                    init_chan_stats(in_ch)
+                    chan_stats[in_ch]["total_in"] += vol_in
+                    chan_stats[in_ch]["last_in"] = max(chan_stats[in_ch]["last_in"], ts)
+                    for d in xdays:
+                        if ct - ts < 86400 * d:
+                            chan_stats[in_ch]["xdays"][d]["c_in"] += 1
+                            chan_stats[in_ch]["xdays"][d]["v_in"] += vol_in
+
+                if out_ch:
+                    init_chan_stats(out_ch)
+                    chan_stats[out_ch]["total_out"] += vol_out
+                    chan_stats[out_ch]["last_out"] = max(chan_stats[out_ch]["last_out"], ts)
+                    if fee >= 1000: chan_stats[out_ch]["last_ppm"] = ppm
+                    for d in xdays:
+                        if ct - ts < 86400 * d:
+                            chan_stats[out_ch]["xdays"][d]["c_out"] += 1
+                            chan_stats[out_ch]["xdays"][d]["v_out"] += vol_out
+                            chan_stats[out_ch]["xdays"][d]["fee"] += fee
+                            chan_stats[out_ch]["xdays"][d]["ppms"].append(ppm)
+            if chunk_hit_target: break
+            current_end = start - 1
+
+# 3. Filtering Logic
+selected_chans = []
+if config["peer_id"]:
+    selected_chans = [c for c in all_channels if c["peer_id"] == config["peer_id"]]
+else:
+    # Filter by forward activity
+    if config["recent_forward"] or config["absent_forward"] != -1:
+        if config["recent_forward"] and config["absent_forward"] != -1:
+            print(colored("Error: Use either --recent-forward or --absent-forward, not both.", "red"), file=sys.stderr)
+            sys.exit(1)
+        
+        dfrom = 0
+        dto = config["absent_forward"]
+        if config["recent_forward"]:
+            tmp = config["recent_forward"].split(",", 1)
+            dfrom = int(tmp[0]) if len(tmp) > 1 else 0
+            dto = int(tmp[0]) if len(tmp) == 1 else int(tmp[1])
+
+        want_peers = set()
+        exclude_peers = set()
+        
+        for scid, stats in chan_stats.items():
+            last_activity = max(stats["last_in"], stats["last_out"])
+            days_ago = (ct - last_activity) / 86400
+            if days_ago < dto:
+                peer_id = chan_info_map.get(scid, {}).get("peer_id")
+                if not peer_id: continue
+                if days_ago >= dfrom:
+                    want_peers.add(peer_id)
+                else:
+                    exclude_peers.add(peer_id)
+        
+        if config["recent_forward"]:
+            target_peers = want_peers - exclude_peers
+            selected_chans = [c for c in all_channels if c["peer_id"] in target_peers]
+        else:
+            # Absent: peers NOT in want_peers (i.e. no activity in last 'dto' days)
+            selected_chans = [c for c in all_channels if c["peer_id"] not in want_peers]
+    else:
+        selected_chans = all_channels
+
+# Filter by liquidity ratio
+selected_chans = [c for c in selected_chans if config["ratio_min"] <= (c["to_us_msat"] / c["total_msat"]) <= config["ratio_max"]]
+
+# 4. Main Display Loop
+progress = len(selected_chans)
+for ch in selected_chans:
+    scid = ch["short_channel_id"]
+    peer_id = ch["peer_id"]
+    alias = node_aliases.get(peer_id, "node not exist in gossip")
+    peer_connected = ch.get("peer_connected", False) # Note: listpeerchannels might not have this, check listpeers
+    # For safety, fetch peer connection status if missing
+    if "peer_connected" not in ch:
+        p_info = call_rpc("listpeers", peer_id).get("peers", [])
+        peer_connected = p_info[0].get("connected", False) if p_info else False
+
+    ratio = ch["to_us_msat"] / ch["total_msat"]
+    
+    local_fee_base = ch.get("fee_base_msat", 0)
+    local_fee_ppm = ch.get("fee_proportional_millionths", 0)
+    remote_fee_base = 0
+    remote_fee_ppm = 0
+    if "updates" in ch and "remote" in ch["updates"]:
+        remote_fee_base = ch["updates"]["remote"].get("fee_base_msat", 0)
+        remote_fee_ppm = ch["updates"]["remote"].get("fee_proportional_millionths", 0)
+
+    stats = chan_stats.get(scid, {
+        "total_in": 0, "total_out": 0, "last_in": 0, "last_out": 0, "last_ppm": 0,
+        "xdays": {d: {"c_in": 0, "c_out": 0, "fee": 0, "v_in": 0, "v_out": 0, "ppms": []} for d in xdays}
+    })
+
+    colored_alias = colored(alias, "green" if peer_connected else "red")
+    colored_ratio = colored("%.2f" % ratio, "red" if ratio <= 0.2 else "yellow" if ratio >= 0.8 else "green")
+    
+    print(f"{peer_id}({colored_alias}) {scid} - {len(selected_chans) - progress + 1} out of {len(selected_chans)}")
+    print("")
+    print("channel size: %.2fM, to_us %.4fM, ratio %s" % (ch["total_msat"]/ONE_M/1000, ch["to_us_msat"]/ONE_M/1000, colored_ratio))
+    print("local_fee(%d,%d) remote_fee(%d,%d)" % (local_fee_base, local_fee_ppm, remote_fee_base, remote_fee_ppm))
+    
+    in_days_ago = (ct - stats["last_in"]) / 86400 if stats["last_in"] > 0 else 999
+    out_days_ago = (ct - stats["last_out"]) / 86400 if stats["last_out"] > 0 else 999
+    
+    def color_days(d):
+        return colored("%d" % d, "green" if d <= 7 else "yellow" if d <= 20 else "red")
+    
+    print("last ppm %s, in forward %s days ago, out forward %s days ago" % (
+        colored(str(stats["last_ppm"]), "green", attrs=["bold"]),
+        color_days(in_days_ago),
+        color_days(out_days_ago)
+    ))
+
+    def format_msat_pair(in_v, out_v):
+        c_in = "blue" if in_v > out_v else "white"
+        c_out = "blue" if out_v > in_v else "white"
+        if in_v == out_v: c_in = c_out = "blue"
+        return "(" + colored("%.3f" % (in_v/ONE_M/1000), c_in) + "," + colored("%.3f" % (out_v/ONE_M/1000), c_out) + ")"
+
+    print("Total Msat in/out forwards %s" % format_msat_pair(stats["total_in"], stats["total_out"]))
+    
+    for d in xdays:
+        d_stats = stats["xdays"][d]
+        print("")
+        print("Msat in/out forwards %d days ago %s" % (d, format_msat_pair(d_stats["v_in"], d_stats["v_out"])))
+        
+        def color_count(c):
+            return colored(str(c), "green" if c >= 5 else "yellow" if c >= 2 else "red")
+        
+        print("last %d days num_forward(in %s, out %s)" % (d, color_count(d_stats["c_in"]), color_count(d_stats["c_out"])))
+        print("last %d days fee earned %.3f" % (d, d_stats["fee"]/ONE_SAT/1000))
+        
+        if d_stats["ppms"]:
+            ppms = d_stats["ppms"]
+            print("last %d days ppm min %d, avg %d, median %d, max %d" % (
+                d, min(ppms), int(mean(ppms)), int(median(ppms)), max(ppms)
+            ))
+
+    # Peer's other channels fees
+    print("")
+    peer_chans = call_rpc("listchannels", "-k", f"source={peer_id}").get("channels", [])
+    if peer_chans:
+        peer_ppms = sorted([c["fee_per_millionth"] for c in peer_chans])
+        if peer_ppms:
+            import numpy as np
+            dist = [20, 30, 40, 50, 60, 70, 80]
+            dist_strs = []
+            for p in dist:
+                val = int(np.percentile(peer_ppms, p))
+                dist_strs.append(f"{p}:{colored(str(val), 'yellow')}")
+            print("remote peer's ppms distribution: " + " ".join(dist_strs))
+
+    if not config["non_interactive"]:
+        print("\nChange PPM to [default=no change; base,ppm; ppm]: ", end='')
+        sys.stdout.flush()
+        line = sys.stdin.readline().rstrip()
+        if line:
+            try:
+                if "," in line:
+                    new_base, new_ppm = map(int, line.split(","))
+                else:
+                    new_base = local_fee_base
+                    new_ppm = int(line)
+                print(call_rpc("setchannel", scid, str(new_base), str(new_ppm)))
+            except Exception as e:
+                print(colored(f"Error updating PPM: {e}", "red"))
+
+    progress -= 1
+    print("-" * 40)
