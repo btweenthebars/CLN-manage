@@ -78,6 +78,15 @@ def print_channel(ch, alias):
     else:
         status_str = colored(scid, "green" if connected else "red")
     
+    # Ratio color logic
+    ratio_str = "%.2f" % ratio
+    if ratio <= 0.2:
+        ratio_colored = colored(ratio_str, "red")
+    elif ratio >= 0.8:
+        ratio_colored = colored(ratio_str, "yellow")
+    else:
+        ratio_colored = ratio_str
+
     liq_m = ch["to_us_msat"] / ONE_M
     cap_m = ch["total_msat"] / ONE_M
     cap_str = "%.2f/%.2f" % (liq_m, cap_m)
@@ -98,11 +107,11 @@ def print_channel(ch, alias):
                 remote_base = gc.get("base_fee_msat")
                 remote_ppm = gc.get("fee_per_millionth")
 
-    # Use 35 padding for the status/id column to accommodate State + SCID
-    print("%s\t%s\t%.2f\t%s\t%s\t%s\t%s" % (
+    # Use padding for the status/id column
+    print("%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
         status_str.ljust(35 if state != "CHANNELD_NORMAL" else 20),
         '{:20s}'.format(alias[:20]),
-        ratio,
+        ratio_colored.ljust(10), # Added padding for colored string
         '{:12s}'.format(cap_str),
         '{:10s}'.format(format_fee(local_base, local_ppm)),
         '{:10s}'.format(format_fee(remote_base, remote_ppm)),
@@ -161,7 +170,6 @@ for peer in all_peers:
     p_id = peer["id"]
     if p_id not in peers_with_channels and peer.get("connected"):
         if first_peer:
-            # print("Connected Peers (No Channels):", file=sys.stderr)
             first_peer = False
         alias = node_aliases.get(p_id, p_id[:20])
         print("%s\t%s\t\t\t\t\t\t%s" % (
