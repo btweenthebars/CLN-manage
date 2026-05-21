@@ -17,6 +17,7 @@ cmd_args, unknown_args = parser.parse_known_args()
 config = vars(cmd_args)
 
 ONE_SAT = 1000
+ONE_M = 1000000000
 
 clncli = [config["cli"]]
 if "CLN_DIR" in os.environ:
@@ -105,18 +106,23 @@ for ch in all_channels:
         if "total_msat" in ch and ch["total_msat"] > 0:
             liq = ch["to_us_msat"] / ch["total_msat"]
             
-        channel_liquidity[scid] = liq
+        liq_m = ch["to_us_msat"] / ONE_M
+            
+        channel_liquidity[scid] = (liq, liq_m)
         channel_to_alias[scid] = alias
 
 def get_liquidity_str(scid):
     if scid not in channel_liquidity:
-        return "?.??"
-    l = channel_liquidity[scid]
+        return "?.??,?.??M"
+    l, m = channel_liquidity[scid]
+    m_str = "%.2fM" % m
     if l < 0.2:
-        return colored("%.2f" % l, "red")
-    if l > 0.8:
-        return colored("%.2f" % l, "green")
-    return "%.2f" % l
+        l_str = colored("%.2f" % l, "red")
+    elif l > 0.8:
+        l_str = colored("%.2f" % l, "green")
+    else:
+        l_str = "%.2f" % l
+    return f"{l_str},{m_str}"
 
 def to_alias(scid):
     return channel_to_alias.get(scid, scid)
