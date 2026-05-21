@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser(description="c-lightning channel review",
 parser.add_argument("--cli", default=os.environ.get("CLN_CLI", "lightning-cli"), help="your lightning-cli command")
 parser.add_argument("--all", action=argparse.BooleanOptionalAction, help="all info, currently used for remote policy fallback")
 parser.add_argument("--sort", default="time", choices=["time", "ratio"], help="sort channels by creation time or liquidity ratio")
+parser.add_argument("aliases", nargs="*", help="Filter peers by alias or pubkey (substring match)")
 cmd_args, unknown_args = parser.parse_known_args()
 config = vars(cmd_args)
 
@@ -199,6 +200,22 @@ for ch in other_chans:
 
 if other_chans and normal_chans:
     print("-" * 120)
+
+# C. NORMAL Channels
+for ch in normal_chans:
+    alias = node_aliases.get(ch["peer_id"], "node not exist in gossip")
+    print_channel(ch, alias)
+
+if total_cap > 0:
+    print("")
+    print("Total Capacity: %.2fM, Outbound: %.2fM, Ratio: %.2f" % (
+        total_cap / ONE_M,
+        outbound_cap / ONE_M,
+        outbound_cap / total_cap
+    ))
+elif not other_chans and first_peer:
+    print("\nNo channels or connected peers found.")
+* 120)
 
 # C. NORMAL Channels
 for ch in normal_chans:

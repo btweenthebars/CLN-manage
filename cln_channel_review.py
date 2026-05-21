@@ -228,6 +228,15 @@ else:
 # Filter by liquidity ratio
 selected_chans = [c for c in selected_chans if config["ratio_min"] <= (c["to_us_msat"] / c["total_msat"]) <= config["ratio_max"]]
 
+if config.get("aliases"):
+    filtered = []
+    for ch in selected_chans:
+        alias = node_aliases.get(ch["peer_id"], "node not exist in gossip").lower()
+        peer_id = ch["peer_id"].lower()
+        if any(a.lower() in alias or a.lower() in peer_id for a in config["aliases"]):
+            filtered.append(ch)
+    selected_chans = filtered
+
 # 4. Main Display Loop
 progress = len(selected_chans)
 for ch in selected_chans:
