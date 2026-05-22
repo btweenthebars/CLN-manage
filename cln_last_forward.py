@@ -157,6 +157,9 @@ while current_end >= 0:
     
     chunk_hit_target = False
     for fw in reversed(fws):
+        if fw.get("created_index", 0) > current_end:
+            continue
+
         if fw.get("status") != "settled" and "status" in fw:
             continue
             
