@@ -93,6 +93,7 @@ for n in nodes_res.get("nodes", []):
 
 channel_liquidity = {}
 channel_to_alias = {}
+channel_feeppm = {}
 peers_res = call_rpc("listpeerchannels")
 all_channels = peers_res.get("channels", [])
 
@@ -110,6 +111,7 @@ for ch in all_channels:
             
         channel_liquidity[scid] = (liq, liq_m)
         channel_to_alias[scid] = alias
+        channel_feeppm[scid] = ch.get("fee_proportional_millionths")
 
 def get_liquidity_str(scid):
     if scid not in channel_liquidity:
@@ -126,6 +128,12 @@ def get_liquidity_str(scid):
 
 def to_alias(scid):
     return channel_to_alias.get(scid, scid)
+
+def get_feeppm_str(scid):
+    if scid not in channel_feeppm:
+        return "?"
+    val = channel_feeppm[scid]
+    return str(val) if val is not None else "?"
 
 # 2. Fetch forwards backwards from the end
 ct = int(time.time())
@@ -194,7 +202,9 @@ for fw in last_forwards:
     ts_start = int(fw["received_time"])
     ts_done = int(fw.get("resolved_time", ts_start))
 
-    print("%d\t%.2f\t(%d\t%s)\t%s(%s) -> %s(%s)\t%s" % (
+    in_feeppm = get_feeppm_str(fw["in_channel"])
+
+    print("%d\t%.2f\t(%d\t%s)\t%s(%s) -> %s(%s, %s)\t%s" % (
         (ts_done - ts_start),
         (ct - ts_done) / 3600,
         ceil(fw["fee_msat"] / ONE_SAT),
@@ -202,6 +212,7 @@ for fw in last_forwards:
         '{:20s}'.format(to_alias(fw["out_channel"])[-20:]),
         get_liquidity_str(fw["out_channel"]),
         '{:20s}'.format(to_alias(fw["in_channel"])[-20:]),
+        in_feeppm,
         get_liquidity_str(fw["in_channel"]),
         '{:>15s}'.format(f"{fw['out_msat']:,}")
     ))

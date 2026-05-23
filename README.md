@@ -7,6 +7,21 @@ Utility scripts for Core Lightning (CLN) management.
 
 All scripts support passing extra arguments directly to `lightning-cli` (e.g., `--rpc-file`, `--net`).
 
+## Interactive Agent
+
+### `cln_agent.py`
+An interactive AI agent powered by the Google Antigravity SDK. It wraps all scripts below as tools, allowing you to manage and query your Core Lightning node using plain English.
+
+To use the agent:
+1. Activate the virtual environment:
+   ```bash
+   source .venv/bin/activate
+   ```
+2. Run the agent:
+   ```bash
+   python cln_agent.py
+   ```
+
 ## Scripts
 
 ### `cln_list_channels.py`
