@@ -68,7 +68,7 @@ def get_peer_fees(peer_id, call_rpc_func=call_rpc):
     _load_cache()
     
     if peer_id not in _peer_fees_cache:
-        peer_chans = call_rpc_func("listchannels", "-k", f"source={peer_id}").get("channels", [])
+        peer_chans = call_rpc_func("listchannels", "-k", f"destination={peer_id}").get("channels", [])
         _peer_fees_cache[peer_id] = sorted([c["fee_per_millionth"] for c in peer_chans])
         
     return _peer_fees_cache[peer_id]

@@ -41,7 +41,7 @@ def main():
             alias = p.get("alias", p_id[:20])
             print(f"[{idx+1}/{total}] Fetching channels for {colored(alias, 'yellow')} ({p_id})...")
             
-            chan_res = call_rpc("listchannels", "-k", f"source={p_id}")
+            chan_res = call_rpc("listchannels", "-k", f"destination={p_id}")
             if "error" in chan_res:
                 print(colored(f"  Error fetching channels for peer {p_id}: {chan_res['error']}", "red"), file=sys.stderr)
                 continue
