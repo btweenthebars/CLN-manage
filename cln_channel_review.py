@@ -145,13 +145,12 @@ def init_chan_stats(scid):
     if scid not in chan_stats:
         chan_stats[scid] = {
             "total_in": 0, "total_out": 0,
-            "last_in": 0, "last_out": 0, "last_ppm": 0,
+            "last_in": 0, "last_out": 0, "last_ppm": 0, "last_ppm_ts": 0,
             "xdays": {d: {"c_in": 0, "c_out": 0, "fee": 0, "v_in": 0, "v_out": 0, "ppms": []} for d in xdays}
         }
 
 def process_fw(fw):
     ts = int(fw.get("resolved_time", fw.get("received_time", 0)))
-    if ts < target_ts: return False
     
     in_ch = fw.get("in_channel")
     out_ch = fw.get("out_channel")
@@ -172,8 +171,11 @@ def process_fw(fw):
     if out_ch:
         init_chan_stats(out_ch)
         chan_stats[out_ch]["total_out"] += vol_out
+        if fee >= 1000:
+            if ts >= chan_stats[out_ch]["last_ppm_ts"]:
+                chan_stats[out_ch]["last_ppm"] = ppm
+                chan_stats[out_ch]["last_ppm_ts"] = ts
         chan_stats[out_ch]["last_out"] = max(chan_stats[out_ch]["last_out"], ts)
-        if fee >= 1000: chan_stats[out_ch]["last_ppm"] = ppm
         for d in xdays:
             if ct - ts < 86400 * d:
                 chan_stats[out_ch]["xdays"][d]["c_out"] += 1
