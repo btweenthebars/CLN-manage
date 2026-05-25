@@ -53,13 +53,13 @@ def _load_cache():
     
     _peer_fees_cache = {}
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    cache_path = os.path.join(script_dir, "peer_fees_cache.json")
+    cache_path = os.environ.get("CLN_PEER_FEES_CACHE_FILE", os.path.join(script_dir, "peer_fees_cache.json"))
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r") as f:
                 _peer_fees_cache = json.load(f)
         except Exception as e:
-            print(colored(f"Warning: Failed to load peer fees cache: {e}", "yellow"), file=sys.stderr)
+            print(colored(f"Warning: Failed to load peer fees cache from {cache_path}: {e}", "yellow"), file=sys.stderr)
 
 def get_peer_fees(peer_id, call_rpc_func=call_rpc):
     """Get sorted list of remote peer fee PPMs.

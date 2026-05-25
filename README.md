@@ -4,6 +4,7 @@ Utility scripts for Core Lightning (CLN) management.
 ## Environment Variables
 - `CLN_CLI`: Path to `lightning-cli` (default: `lightning-cli`)
 - `CLN_DIR`: Path to the lightning directory (default: `~/.lightning`)
+- `CLN_PEER_FEES_CACHE_FILE`: Custom path to write/read the peer fee cache JSON file (default: `peer_fees_cache.json` in script directory)
 
 All scripts support passing extra arguments directly to `lightning-cli` (e.g., `--rpc-file`, `--net`).
 

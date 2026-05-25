@@ -49,9 +49,9 @@ def main():
             chans = chan_res.get("channels", [])
             peer_fees[p_id] = sorted([c["fee_per_millionth"] for c in chans])
             
-    # Write to peer_fees_cache.json in the script's directory
+    # Write to peer_fees_cache.json or custom configured path
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    cache_path = os.path.join(script_dir, "peer_fees_cache.json")
+    cache_path = os.environ.get("CLN_PEER_FEES_CACHE_FILE", os.path.join(script_dir, "peer_fees_cache.json"))
     
     try:
         with open(cache_path, "w") as f:
