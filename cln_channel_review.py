@@ -266,7 +266,7 @@ for idx, ch in enumerate(selected_chans):
     print(f"{peer_id}({colored_alias}) {scid} - {idx + 1} out of {progress_total}")
     print("")
     print("channel size: %.2fM, to_us %.4fM, ratio %s" % (ch["total_msat"]/ONE_M, ch["to_us_msat"]/ONE_M, colored_ratio))
-    print("local_fee(%d,%d) remote_fee(%d,%d)" % (local_fee_base, local_fee_ppm, remote_fee_base, remote_fee_ppm))
+    print(colored("local_fee(%d,%d)" % (local_fee_base, local_fee_ppm), "magenta") + " remote_fee(%d,%d)" % (remote_fee_base, remote_fee_ppm))
     
     in_days_ago = (ct - stats["last_in"]) / 86400 if stats["last_in"] > 0 else 999
     out_days_ago = (ct - stats["last_out"]) / 86400 if stats["last_out"] > 0 else 999
