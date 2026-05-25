@@ -54,3 +54,9 @@ Lookup node IDs and SCIDs by alias or substring.
 ### `cln_cache_fees.py`
 Cache remote peer fee PPM distributions to a JSON file (`peer_fees_cache.json`) to speed up channel reviews.
 
+## Libraries
+
+### `cln_fee_lib.py`
+A shared helper module exposing `get_peer_fees(peer_id, call_rpc)`. Handles transparent loading of the peer fees cache database and dynamic fallback RPC lookup logic.
+
+

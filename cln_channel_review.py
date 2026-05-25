@@ -8,6 +8,7 @@ from math import ceil
 import sys
 from termcolor import colored
 import argparse
+from cln_fee_lib import get_peer_fees
 
 parser = argparse.ArgumentParser(description="c-lightning channel review",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -256,15 +257,6 @@ if config["recent_forward"] or config["absent_forward"] != -1:
         selected_chans = [c for c in selected_chans if c["peer_id"] not in want_peers]
 
 # 5. Main Display Loop
-peer_fees_cache = {}
-script_dir = os.path.dirname(os.path.abspath(__file__))
-cache_path = os.path.join(script_dir, "peer_fees_cache.json")
-if os.path.exists(cache_path):
-    try:
-        with open(cache_path, "r") as f:
-            peer_fees_cache = json.load(f)
-    except Exception as e:
-        print(colored(f"Warning: Failed to load peer fees cache: {e}", "yellow"), file=sys.stderr)
 progress_total = len(selected_chans)
 for idx, ch in enumerate(selected_chans):
     scid = ch["short_channel_id"]
@@ -324,11 +316,7 @@ for idx, ch in enumerate(selected_chans):
             ))
 
     print("")
-    if peer_id not in peer_fees_cache:
-        peer_chans = call_rpc("listchannels", "-k", f"source={peer_id}").get("channels", [])
-        peer_fees_cache[peer_id] = sorted([c["fee_per_millionth"] for c in peer_chans])
-    
-    peer_ppms = peer_fees_cache[peer_id]
+    peer_ppms = get_peer_fees(peer_id, call_rpc)
     if peer_ppms:
         import numpy as np
         dist = [20, 30, 40, 50, 60, 70, 80]
