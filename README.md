@@ -41,11 +41,6 @@ In-depth review of channel performance with interactive fee adjustment.
 - `--xdays 1 7 30`: Stats for specific day ranges.
 - `--non-interactive`: Skip the fee update prompt.
 
-### `cln_active_fee.py`
-Automated liquidity-based fee management. Listens to forwards on stdin and adjusts fees based on tiered rules.
-- `--dry-run`: Preview changes without applying them.
-- `--config path/to/config.json`: Load custom fee tiers and peer lists.
-
 ### `cln_list_outputs.py`
 Display wallet UTXOs and total balance.
 
