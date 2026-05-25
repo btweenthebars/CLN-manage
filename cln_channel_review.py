@@ -41,6 +41,12 @@ while i < len(unknown_args):
 ONE_M = 1000000000
 ONE_SAT = 1000
 
+def format_fee_sats(val):
+    if val == 0:
+        return "0.000"
+    s = ("%.3f" % val).rstrip("0").rstrip(".")
+    return s if s else "0.000"
+
 clncli = [config["cli"]]
 if "CLN_DIR" in os.environ:
     clncli.extend(["--lightning-dir", os.environ["CLN_DIR"]])
@@ -259,7 +265,7 @@ for idx, ch in enumerate(selected_chans):
     
     print(f"{peer_id}({colored_alias}) {scid} - {idx + 1} out of {progress_total}")
     print("")
-    print("channel size: %.2fM, to_us %.4fM, ratio %s" % (ch["total_msat"]/ONE_M/1000, ch["to_us_msat"]/ONE_M/1000, colored_ratio))
+    print("channel size: %.2fM, to_us %.4fM, ratio %s" % (ch["total_msat"]/ONE_M, ch["to_us_msat"]/ONE_M, colored_ratio))
     print("local_fee(%d,%d) remote_fee(%d,%d)" % (local_fee_base, local_fee_ppm, remote_fee_base, remote_fee_ppm))
     
     in_days_ago = (ct - stats["last_in"]) / 86400 if stats["last_in"] > 0 else 999
@@ -275,7 +281,7 @@ for idx, ch in enumerate(selected_chans):
         c_in = "blue" if in_v > out_v else "white"
         c_out = "blue" if out_v > in_v else "white"
         if in_v == out_v: c_in = c_out = "blue"
-        return "(" + colored("%.3f" % (in_v/ONE_M/1000), c_in) + "," + colored("%.3f" % (out_v/ONE_M/1000), c_out) + ")"
+        return "(" + colored("%.3f" % (in_v/ONE_M), c_in) + "," + colored("%.3f" % (out_v/ONE_M), c_out) + ")"
 
     print("Total Msat in/out forwards %s" % format_msat_pair(stats["total_in"], stats["total_out"]))
     for d in xdays:
@@ -284,7 +290,7 @@ for idx, ch in enumerate(selected_chans):
         print("Msat in/out forwards %d days ago %s" % (d, format_msat_pair(d_stats["v_in"], d_stats["v_out"])))
         color_count = lambda c: colored(str(c), "green" if c >= 5 else "yellow" if c >= 2 else "red")
         print("last %d days num_forward(in %s, out %s)" % (d, color_count(d_stats["c_in"]), color_count(d_stats["c_out"])))
-        print("last %d days fee earned %.3f" % (d, d_stats["fee"]/ONE_SAT/1000))
+        print("last %d days fee earned %s" % (d, format_fee_sats(d_stats["fee"]/ONE_SAT)))
         if d_stats["ppms"]:
             ppms = d_stats["ppms"]
             import numpy as np
