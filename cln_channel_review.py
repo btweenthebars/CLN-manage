@@ -8,7 +8,7 @@ from math import ceil
 import sys
 from termcolor import colored
 import argparse
-from cln_fee_lib import get_peer_fees
+from cln_lib import init_cln, call_rpc, verify_env, get_peer_fees
 
 parser = argparse.ArgumentParser(description="c-lightning channel review",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -45,30 +45,7 @@ clncli = [config["cli"]]
 if "CLN_DIR" in os.environ:
     clncli.extend(["--lightning-dir", os.environ["CLN_DIR"]])
 clncli.extend(cln_options)
-
-def call_rpc(*args):
-    args = clncli + list(args)
-    try:
-        j = subprocess.run(args, stdout=PIPE, stderr=PIPE)
-        if j.returncode != 0:
-            err_msg = j.stderr.decode().strip()
-            if not err_msg and j.stdout:
-                try:
-                    err_json = json.loads(j.stdout)
-                    err_msg = err_json.get("message", err_json.get("error", j.stdout.decode().strip()))
-                except:
-                    err_msg = j.stdout.decode().strip()
-            return {"error": err_msg or f"Exit code {j.returncode}"}
-        return json.loads(j.stdout)
-    except Exception as e:
-        return {"error": str(e)}
-
-def verify_env():
-    info = call_rpc("getinfo")
-    if "id" not in info:
-        print(colored("Error: Could not connect to Core Lightning.", "red"), file=sys.stderr)
-        sys.exit(1)
-    return info
+init_cln(clncli)
 
 def get_forward_at(idx):
     if idx < 0: return None

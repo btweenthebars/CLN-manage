@@ -56,7 +56,12 @@ Cache remote peer fee PPM distributions to a JSON file (`peer_fees_cache.json`) 
 
 ## Libraries
 
-### `cln_fee_lib.py`
-A shared helper module exposing `get_peer_fees(peer_id, call_rpc)`. Handles transparent loading of the peer fees cache database and dynamic fallback RPC lookup logic.
+### `cln_lib.py`
+A shared helper module exposing:
+* `init_cln(clncli_list)`: Initializes global CLI connection parameters.
+* `call_rpc(*args)`: Executes commands against `lightning-cli` with robust error parsing from stdout/stderr.
+* `verify_env(cli_path)`: Verifies node connectivity and prints user-facing connection troubleshooting hints.
+* `get_peer_fees(peer_id, call_rpc_func)`: Resolves remote peer fee distributions from `peer_fees_cache.json` with lazy loading and dynamic RPC lookup fallback.
+
 
 
