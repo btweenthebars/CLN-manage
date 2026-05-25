@@ -96,10 +96,14 @@ def alias_to_id(query: str, search_all: bool = False) -> str:
         args.append("--all")
     return run_script("cln_alias_to_id.py", args)
 
+def cache_fees() -> str:
+    """Batch query and cache remote peer fee PPM distributions to a local JSON file to speed up channel reviews."""
+    return run_script("cln_cache_fees.py", [])
+
 # Agent system instructions
 SYSTEM_INSTRUCTIONS = """You are a Core Lightning (CLN) management assistant.
 You help operators monitor and optimize their LN nodes.
-You have tools to query channels, forwards, wallet outputs, and lookup aliases.
+You have tools to query channels, forwards, wallet outputs, lookup aliases, and cache peer fees.
 When asked to analyze or report status:
 1. Choose the most specific tool for the task.
 2. Present tables and key details clearly to the user.
@@ -108,7 +112,7 @@ When asked to analyze or report status:
 
 async def main():
     config = LocalAgentConfig(
-        tools=[list_channels, last_forward, channel_review, list_outputs, alias_to_id],
+        tools=[list_channels, last_forward, channel_review, list_outputs, alias_to_id, cache_fees],
         system_instructions=SYSTEM_INSTRUCTIONS,
         # Allow custom tools to run without safety prompt (standard command prompt still applies to raw CLI)
         policies=[policy.allow_all()]

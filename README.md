@@ -50,3 +50,7 @@ Display wallet UTXOs and total balance.
 
 ### `cln_alias_to_id.py`
 Lookup node IDs and SCIDs by alias or substring.
+
+### `cln_cache_fees.py`
+Cache remote peer fee PPM distributions to a JSON file (`peer_fees_cache.json`) to speed up channel reviews.
+

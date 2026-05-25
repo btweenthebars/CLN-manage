@@ -50,7 +50,14 @@ def call_rpc(*args):
     try:
         j = subprocess.run(args, stdout=PIPE, stderr=PIPE)
         if j.returncode != 0:
-            return {"error": j.stderr.decode().strip()}
+            err_msg = j.stderr.decode().strip()
+            if not err_msg and j.stdout:
+                try:
+                    err_json = json.loads(j.stdout)
+                    err_msg = err_json.get("message", err_json.get("error", j.stdout.decode().strip()))
+                except:
+                    err_msg = j.stdout.decode().strip()
+            return {"error": err_msg or f"Exit code {j.returncode}"}
         return json.loads(j.stdout)
     except Exception as e:
         return {"error": str(e)}
@@ -250,6 +257,14 @@ if config["recent_forward"] or config["absent_forward"] != -1:
 
 # 5. Main Display Loop
 peer_fees_cache = {}
+script_dir = os.path.dirname(os.path.abspath(__file__))
+cache_path = os.path.join(script_dir, "peer_fees_cache.json")
+if os.path.exists(cache_path):
+    try:
+        with open(cache_path, "r") as f:
+            peer_fees_cache = json.load(f)
+    except Exception as e:
+        print(colored(f"Warning: Failed to load peer fees cache: {e}", "yellow"), file=sys.stderr)
 progress_total = len(selected_chans)
 for idx, ch in enumerate(selected_chans):
     scid = ch["short_channel_id"]
