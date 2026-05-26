@@ -3,10 +3,12 @@ import os
 import subprocess
 from subprocess import PIPE
 import sys
+import time
 from termcolor import colored
 
 _clncli = ["lightning-cli"]
 _peer_fees_cache = None
+_peer_fees_cache_decay = 0
 
 def init_cln(clncli_list):
     """Initialize the CLN CLI command parameters."""
@@ -47,8 +49,9 @@ def verify_env(cli_path="lightning-cli"):
     return info
 
 def _load_cache():
-    global _peer_fees_cache
-    if _peer_fees_cache is not None:
+    global _peer_fees_cache, _peer_fees_cache_decay
+    now = time.time()
+    if _peer_fees_cache is not None and (now - _peer_fees_cache_decay <= 3 * 3600):
         return
     
     _peer_fees_cache = {}
@@ -60,6 +63,7 @@ def _load_cache():
                 _peer_fees_cache = json.load(f)
         except Exception as e:
             print(colored(f"Warning: Failed to load peer fees cache from {cache_path}: {e}", "yellow"), file=sys.stderr)
+    _peer_fees_cache_decay = now
 
 def get_peer_fees(peer_id, call_rpc_func=call_rpc):
     """Get sorted list of remote peer fee PPMs.

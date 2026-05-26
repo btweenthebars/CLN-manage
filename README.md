@@ -57,7 +57,7 @@ A shared helper module exposing:
 * `init_cln(clncli_list)`: Initializes global CLI connection parameters.
 * `call_rpc(*args)`: Executes commands against `lightning-cli` with robust error parsing from stdout/stderr.
 * `verify_env(cli_path)`: Verifies node connectivity and prints user-facing connection troubleshooting hints.
-* `get_peer_fees(peer_id, call_rpc_func)`: Resolves remote peer fee distributions from `peer_fees_cache.json` with lazy loading and dynamic RPC lookup fallback.
+* `get_peer_fees(peer_id, call_rpc_func)`: Resolves remote peer fee distributions from `peer_fees_cache.json` with lazy loading and dynamic RPC lookup fallback. The cache is automatically reloaded if it is older than 3 hours.
 
 
 
