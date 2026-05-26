@@ -183,13 +183,15 @@ for fw in last_forwards:
     ts_done = int(fw.get("resolved_time", ts_start))
 
     in_feeppm = get_feeppm_str(fw["in_channel"])
+    out_feeppm = get_feeppm_str(fw["out_channel"])
 
-    print("%d\t%.2f\t(%d\t%s)\t%s(%s) -> %s(%s, %s)\t%s" % (
+    print("%d\t%.2f\t(%d\t%s)\t%s(%s, %s) -> %s(%s, %s)\t%s" % (
         (ts_done - ts_start),
         (ct - ts_done) / 3600,
         ceil(fw["fee_msat"] / ONE_SAT),
         ppm,
         '{:20s}'.format(to_alias(fw["out_channel"])[-20:]),
+        out_feeppm,
         get_liquidity_str(fw["out_channel"]),
         '{:20s}'.format(to_alias(fw["in_channel"])[-20:]),
         in_feeppm,
