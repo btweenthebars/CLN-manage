@@ -5,6 +5,7 @@ Utility scripts for Core Lightning (CLN) management.
 - `CLN_CLI`: Path to `lightning-cli` (default: `lightning-cli`)
 - `CLN_DIR`: Path to the lightning directory (default: `~/.lightning`)
 - `CLN_PEER_FEES_CACHE_FILE`: Custom path to write/read the peer fee cache JSON file (default: `peer_fees_cache.json` in script directory)
+- `CLN_REBALANCE_RECORDS_FILE`: Custom path to write/read the rebalance records JSON file (default: `rebalance_records` in script directory)
 
 All scripts support passing extra arguments directly to `lightning-cli` (e.g., `--rpc-file`, `--net`).
 
@@ -49,6 +50,15 @@ Lookup node IDs and SCIDs by alias or substring.
 
 ### `cln_cache_fees.py`
 Cache remote peer fee PPM distributions to a JSON file (`peer_fees_cache.json`) to speed up channel reviews.
+
+### `cln_hop_circular_rebal_alias.py`
+Perform circular rebalancing on channels by alias or SCID and record execution results and average PPM costs to `rebalance_records`.
+- `alias_or_scid`: Target inbound channel alias or SCID.
+- `hop`: Maximum number of hops (`maxhops`).
+- `ppm`: Maximum fee PPM to pay (default: 100).
+- `maxoutppm`: Maximum out fee PPM (default: 60).
+- `amount`: Total amount to rebalance in satoshis (default: 400,000).
+- `splitsize`: Split size in satoshis (default: 100,000).
 
 ## Libraries
 
