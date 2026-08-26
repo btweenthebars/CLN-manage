@@ -53,6 +53,28 @@ if "CLN_DIR" in os.environ:
 clncli.extend(cln_options)
 init_cln(clncli)
 
+# Load rebalance records if available
+script_dir = os.path.dirname(os.path.abspath(__file__))
+rebalance_records_path = os.environ.get("CLN_REBALANCE_RECORDS_FILE")
+if not rebalance_records_path:
+    default_path = os.path.join(script_dir, "rebalance_records")
+    if os.path.exists(default_path):
+        rebalance_records_path = default_path
+    else:
+        fallback_path = os.path.join(os.path.dirname(script_dir), "CLN-illtry", "rebalance_records")
+        if os.path.exists(fallback_path):
+            rebalance_records_path = fallback_path
+        else:
+            rebalance_records_path = default_path
+
+rebalance_records = {}
+if os.path.exists(rebalance_records_path):
+    try:
+        with open(rebalance_records_path, "r") as f:
+            rebalance_records = json.load(f)
+    except Exception:
+        rebalance_records = {}
+
 def get_forward_at(idx):
     if idx < 0: return None
     res = call_rpc("listforwards", "status=settled", "index=created", f"start={idx}", "limit=1")
@@ -286,6 +308,22 @@ for idx, ch in enumerate(selected_chans):
         return "(" + colored("%.3f" % (in_v/ONE_M), c_in) + "," + colored("%.3f" % (out_v/ONE_M), c_out) + ")"
 
     print("Total Msat in/out forwards %s" % format_msat_pair(stats["total_in"], stats["total_out"]))
+    if scid in rebalance_records and isinstance(rebalance_records[scid], list) and rebalance_records[scid]:
+        last_rebal = rebalance_records[scid][-10:]
+        tot_amt = 0
+        tot_weighted = 0
+        for item in last_rebal:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                try:
+                    amt, cost = float(item[0]), float(item[1])
+                    tot_amt += amt
+                    tot_weighted += amt * cost
+                except (ValueError, TypeError):
+                    continue
+        if tot_amt > 0:
+            avg_cost = int(round(tot_weighted / tot_amt))
+            n_rebal = len(last_rebal)
+            print(f"Avg cost of the last {n_rebal} rebalance{'s' if n_rebal > 1 else ''}: {avg_cost}ppm")
     for d in xdays:
         d_stats = stats["xdays"][d]
         print("")
