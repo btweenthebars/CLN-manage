@@ -139,4 +139,8 @@ def load_rebalance_records():
                 except Exception:
                     pass
 
+    # Keep only the last 10 rebalances per channel (older ones are discarded)
+    for scid in list(merged_records.keys()):
+        merged_records[scid] = merged_records[scid][-10:]
+
     return merged_records

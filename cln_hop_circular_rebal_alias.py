@@ -132,6 +132,8 @@ def record_rebalance(scid, amount, avg_cost):
     records[scid] = []
 
   records[scid].append([amount, avg_cost])
+  # Keep only the last 10 rebalances for this channel
+  records[scid] = records[scid][-10:]
 
   try:
     with open(records_path, "w") as f:
