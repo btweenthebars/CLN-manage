@@ -78,21 +78,27 @@ def get_peer_fees(peer_id, call_rpc_func=call_rpc):
     return _peer_fees_cache[peer_id]
 
 def get_rebalance_records_file():
-    """Get target path for saving rebalance records."""
+    """Get target path for saving rebalance records (defaults to current working directory)."""
     if "CLN_REBALANCE_RECORDS_FILE" in os.environ:
         return os.environ["CLN_REBALANCE_RECORDS_FILE"]
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, "rebalance_records")
+    cwd = os.getcwd()
+    cwd_file = os.path.join(cwd, "rebalance_records")
+    if os.path.exists(cwd_file):
+        return cwd_file
+    cwd_json = os.path.join(cwd, "rebalance_records.json")
+    if os.path.exists(cwd_json):
+        return cwd_json
+    return os.path.join(cwd, "rebalance_records")
 
 def load_rebalance_records():
-    """Load and merge rebalance records from standard search paths."""
+    """Load and merge rebalance records, prioritizing the directory where the command runs."""
+    cwd = os.getcwd()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(script_dir)
-    cwd = os.getcwd()
 
     candidate_dirs = [
+        cwd,  # Priority 1: directory where command was run
         script_dir,
-        cwd,
         os.path.join(parent_dir, "CLN-illtry"),
         os.path.join(parent_dir, "CLN-manage"),
         os.path.join(parent_dir, "suez"),
@@ -108,7 +114,7 @@ def load_rebalance_records():
     file_names = ["rebalance_records", "rebalance_records.json"]
     if "CLN_REBALANCE_RECORDS_FILE" in os.environ:
         custom_base = os.path.basename(os.environ["CLN_REBALANCE_RECORDS_FILE"])
-        if custom_base:
+        if custom_base and custom_base not in file_names:
             file_names.insert(0, custom_base)
 
     seen_paths = set()
