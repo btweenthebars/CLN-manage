@@ -158,17 +158,32 @@ def do_rebal(s, ppm):
   tmp = int(s / splitamount)
   size_rebal = tmp * splitamount
 
+  # Circular pull parameters
+  rpc_args = [
+      "circular-pull",
+      "-k",
+      "splits=2",
+      f"splitamount={splitamount}",
+      f"maxhops={hop}",
+      "attempts=100",
+      f"maxoutppm={config['maxoutppm']}",
+      f"inscid={to_scid}",
+      f"maxppm={ppm}",
+      f"amount={size_rebal}"
+  ]
+
+  print("\nWe are going to call circular pull with these parameters:")
+  print('call_rpc(\n    ' + ',\n    '.join([json.dumps(a) for a in rpc_args]) + '\n)')
+
+  print("\nWould you like to proceed? [Y/n]: ", end='')
+  sys.stdout.flush()
+  proceed = sys.stdin.readline().rstrip()
+  if proceed.lower() not in ["y", ""]:
+    print("Aborted.")
+    return
+
   # Circular pull run using call_rpc
-  result = call_rpc("circular-pull", 
-                    "-k", 
-                    "splits=2", 
-                    f"splitamount={splitamount}", 
-                    f"maxhops={hop}", 
-                    "attempts=100", 
-                    f"maxoutppm={config['maxoutppm']}", 
-                    f"inscid={to_scid}", 
-                    f"maxppm={ppm}", 
-                    f"amount={size_rebal}")
+  result = call_rpc(*rpc_args)
 
   print(json.dumps(result, indent = 2, separators=(',', ': ')))
 
