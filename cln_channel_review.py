@@ -8,7 +8,7 @@ from math import ceil
 import sys
 from termcolor import colored
 import argparse
-from cln_lib import init_cln, call_rpc, verify_env, get_peer_fees
+from cln_lib import init_cln, call_rpc, verify_env, get_peer_fees, load_rebalance_records
 
 parser = argparse.ArgumentParser(description="c-lightning channel review",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -53,27 +53,7 @@ if "CLN_DIR" in os.environ:
 clncli.extend(cln_options)
 init_cln(clncli)
 
-# Load rebalance records if available
-script_dir = os.path.dirname(os.path.abspath(__file__))
-rebalance_records_path = os.environ.get("CLN_REBALANCE_RECORDS_FILE")
-if not rebalance_records_path:
-    default_path = os.path.join(script_dir, "rebalance_records")
-    if os.path.exists(default_path):
-        rebalance_records_path = default_path
-    else:
-        fallback_path = os.path.join(os.path.dirname(script_dir), "CLN-illtry", "rebalance_records")
-        if os.path.exists(fallback_path):
-            rebalance_records_path = fallback_path
-        else:
-            rebalance_records_path = default_path
-
-rebalance_records = {}
-if os.path.exists(rebalance_records_path):
-    try:
-        with open(rebalance_records_path, "r") as f:
-            rebalance_records = json.load(f)
-    except Exception:
-        rebalance_records = {}
+rebalance_records = load_rebalance_records()
 
 def get_forward_at(idx):
     if idx < 0: return None

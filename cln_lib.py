@@ -76,3 +76,61 @@ def get_peer_fees(peer_id, call_rpc_func=call_rpc):
         _peer_fees_cache[peer_id] = sorted([c["fee_per_millionth"] for c in peer_chans])
         
     return _peer_fees_cache[peer_id]
+
+def get_rebalance_records_file():
+    """Get target path for saving rebalance records."""
+    if "CLN_REBALANCE_RECORDS_FILE" in os.environ:
+        return os.environ["CLN_REBALANCE_RECORDS_FILE"]
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "rebalance_records")
+
+def load_rebalance_records():
+    """Load and merge rebalance records from standard search paths."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(script_dir)
+    cwd = os.getcwd()
+
+    candidate_dirs = [
+        script_dir,
+        cwd,
+        os.path.join(parent_dir, "CLN-illtry"),
+        os.path.join(parent_dir, "CLN-manage"),
+        os.path.join(parent_dir, "suez"),
+        os.path.join(script_dir, "..", "CLN-illtry"),
+        os.path.join(script_dir, "..", "suez"),
+    ]
+    if "CLN_DIR" in os.environ:
+        candidate_dirs.append(os.environ["CLN_DIR"])
+    if "CLN_REBALANCE_RECORDS_FILE" in os.environ:
+        custom_file = os.environ["CLN_REBALANCE_RECORDS_FILE"]
+        candidate_dirs.insert(0, os.path.dirname(custom_file) or cwd)
+
+    file_names = ["rebalance_records", "rebalance_records.json"]
+    if "CLN_REBALANCE_RECORDS_FILE" in os.environ:
+        custom_base = os.path.basename(os.environ["CLN_REBALANCE_RECORDS_FILE"])
+        if custom_base:
+            file_names.insert(0, custom_base)
+
+    seen_paths = set()
+    merged_records = {}
+
+    for d in candidate_dirs:
+        for fname in file_names:
+            p = os.path.abspath(os.path.join(d, fname))
+            if p not in seen_paths and os.path.isfile(p):
+                seen_paths.add(p)
+                try:
+                    with open(p, "r") as f:
+                        data = json.load(f)
+                    if isinstance(data, dict):
+                        for scid, entries in data.items():
+                            if isinstance(entries, list):
+                                if scid not in merged_records:
+                                    merged_records[scid] = []
+                                for item in entries:
+                                    if item not in merged_records[scid]:
+                                        merged_records[scid].append(item)
+                except Exception:
+                    pass
+
+    return merged_records

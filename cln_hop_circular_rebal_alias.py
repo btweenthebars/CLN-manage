@@ -8,7 +8,7 @@ import re
 import random
 import os
 import argparse
-from cln_lib import init_cln, call_rpc, verify_env
+from cln_lib import init_cln, call_rpc, verify_env, load_rebalance_records, get_rebalance_records_file
 
 parser = argparse.ArgumentParser(description="Core Lightning Circular Rebalance by Alias or SCID",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -125,17 +125,8 @@ if hop > 10:
   raise Exception("hop > 10, makes no sense")
 
 def record_rebalance(scid, amount, avg_cost):
-  script_dir = os.path.dirname(os.path.abspath(__file__))
-  records_path = os.environ.get("CLN_REBALANCE_RECORDS_FILE", os.path.join(script_dir, "rebalance_records"))
-
-  records = {}
-  if os.path.exists(records_path):
-    try:
-      with open(records_path, "r") as f:
-        records = json.load(f)
-    except Exception as e:
-      print(f"Warning: Could not read {records_path}: {e}", file=sys.stderr)
-      records = {}
+  records_path = get_rebalance_records_file()
+  records = load_rebalance_records()
 
   if scid not in records:
     records[scid] = []
