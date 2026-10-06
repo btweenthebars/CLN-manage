@@ -7,6 +7,7 @@ import json
 import re
 import random
 import os
+import time
 import argparse
 from cln_lib import init_cln, call_rpc, verify_env, load_rebalance_records, get_rebalance_records_file
 
@@ -147,8 +148,9 @@ def record_rebalance(scid, entries):
     for entry in entries:
       amt = entry[0]
       cost = entry[1]
-      node_str = f" from {entry[2]}" if len(entry) >= 3 else ""
-      print(f"\n[Saved to {records_path}] {scid}: ({amt} sat @ {cost} ppm{node_str})")
+      node_str = f" from {entry[2]}" if len(entry) >= 3 and entry[2] else ""
+      ts_str = f" at {entry[3]}" if len(entry) >= 4 else ""
+      print(f"\n[Saved to {records_path}] {scid}: ({amt} sat @ {cost} ppm{node_str}{ts_str})")
   except Exception as e:
     print(f"Error writing to {records_path}: {e}", file=sys.stderr)
 
@@ -213,6 +215,7 @@ def do_rebal(s, ppm):
           except (ValueError, TypeError):
             continue
 
+    ts = int(time.time())
     new_entries = []
     for group_key, stats in node_stats.items():
       amt = stats["total_amount"]
@@ -220,9 +223,8 @@ def do_rebal(s, ppm):
         avg_cost = round(stats["total_weighted_ppm"] / amt, 2)
         if avg_cost.is_integer():
           avg_cost = int(avg_cost)
-        entry = [int(amt), avg_cost]
-        if stats["node_id"]:
-          entry.append(stats["node_id"])
+        node_id = stats["node_id"] if stats["node_id"] else ""
+        entry = [int(amt), avg_cost, node_id, ts]
         new_entries.append(entry)
 
     if new_entries:
