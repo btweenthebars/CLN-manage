@@ -124,21 +124,31 @@ hop = config["hop"]
 if hop > 10:
   raise Exception("hop > 10, makes no sense")
 
-def record_rebalance(scid, amount, avg_cost):
+def record_rebalance(scid, entries):
   records_path = get_rebalance_records_file()
   records = load_rebalance_records()
 
   if scid not in records:
     records[scid] = []
 
-  records[scid].append([amount, avg_cost])
+  # Support passing either a single entry [amount, avg_cost] or a list of entries [[amount, avg_cost, node_id], ...]
+  if entries and isinstance(entries[0], (int, float, str)):
+    entries = [entries]
+
+  for entry in entries:
+    records[scid].append(entry)
+
   # Keep only the last 10 rebalances for this channel
   records[scid] = records[scid][-10:]
 
   try:
     with open(records_path, "w") as f:
       json.dump(records, f, indent=2)
-    print(f"\n[Saved to {records_path}] {scid}: ({amount} sat @ {avg_cost} ppm)")
+    for entry in entries:
+      amt = entry[0]
+      cost = entry[1]
+      node_str = f" from {entry[2]}" if len(entry) >= 3 else ""
+      print(f"\n[Saved to {records_path}] {scid}: ({amt} sat @ {cost} ppm{node_str})")
   except Exception as e:
     print(f"Error writing to {records_path}: {e}", file=sys.stderr)
 
@@ -181,25 +191,42 @@ def do_rebal(s, ppm):
   print(json.dumps(result, indent = 2, separators=(',', ': ')))
 
   if isinstance(result, dict) and "successes" in result and isinstance(result["successes"], dict):
-    total_weighted_ppm = 0
-    total_amount = 0
-    for peer, ppm_dict in result["successes"].items():
+    node_stats = {}
+    for entry_key, ppm_dict in result["successes"].items():
       if isinstance(ppm_dict, dict):
-        for ppm_str, amt in ppm_dict.items():
+        node_id = ppm_dict.get("node_id")
+        group_key = node_id if node_id else entry_key
+        if group_key not in node_stats:
+          node_stats[group_key] = {
+            "node_id": node_id,
+            "total_amount": 0,
+            "total_weighted_ppm": 0
+          }
+        for k, amt in ppm_dict.items():
+          if k in ("alias", "node_id"):
+            continue
           try:
-            ppm_val = float(ppm_str)
+            ppm_val = float(k)
             amt_val = float(amt)
-            total_weighted_ppm += ppm_val * amt_val
-            total_amount += amt_val
+            node_stats[group_key]["total_weighted_ppm"] += ppm_val * amt_val
+            node_stats[group_key]["total_amount"] += amt_val
           except (ValueError, TypeError):
             continue
 
-    if total_amount > 0:
-      rebalanced_amount = result.get("rebalanced_amount", int(total_amount))
-      avg_cost = round(total_weighted_ppm / total_amount, 2)
-      if avg_cost.is_integer():
-        avg_cost = int(avg_cost)
-      record_rebalance(to_scid, rebalanced_amount, avg_cost)
+    new_entries = []
+    for group_key, stats in node_stats.items():
+      amt = stats["total_amount"]
+      if amt > 0:
+        avg_cost = round(stats["total_weighted_ppm"] / amt, 2)
+        if avg_cost.is_integer():
+          avg_cost = int(avg_cost)
+        entry = [int(amt), avg_cost]
+        if stats["node_id"]:
+          entry.append(stats["node_id"])
+        new_entries.append(entry)
+
+    if new_entries:
+      record_rebalance(to_scid, new_entries)
 
   print("[continue: Y/n?]: ", end='')
   sys.stdout.flush()

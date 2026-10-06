@@ -289,7 +289,7 @@ for idx, ch in enumerate(selected_chans):
 
     print("Total Msat in/out forwards %s" % format_msat_pair(stats["total_in"], stats["total_out"]))
     if scid in rebalance_records and isinstance(rebalance_records[scid], list) and rebalance_records[scid]:
-        last_rebal = rebalance_records[scid][-10:]
+        last_rebal = rebalance_records[scid][-6:]
         tot_amt = 0
         tot_weighted = 0
         for item in last_rebal:
